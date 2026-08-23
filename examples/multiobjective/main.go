@@ -26,7 +26,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/MeKo-Christian/dragonfly"
+	dragonfly "github.com/CWBudde/Dragonfly"
 )
 
 const (

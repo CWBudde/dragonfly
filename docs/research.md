@@ -297,7 +297,7 @@ they are reported rather than dressed up.
   author = {Budde, Christian-W.},
   title  = {Dragonfly: A Go implementation of the Dragonfly Algorithm},
   year   = {2026},
-  note   = {\url{https://github.com/MeKo-Christian/dragonfly}}
+  note   = {\url{https://github.com/CWBudde/Dragonfly}}
 }
 ```
 

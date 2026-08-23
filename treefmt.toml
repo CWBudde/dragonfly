@@ -38,7 +38,7 @@ options = [
   "-s",
   "default",
   "-s",
-  "prefix(github.com/MeKo-Christian/dragonfly)",
+  "prefix(github.com/CWBudde/Dragonfly)",
 ]
 includes = ["*.go"]
 priority = 1 # run after gofumpt

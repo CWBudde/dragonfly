@@ -1,4 +1,4 @@
-module github.com/MeKo-Christian/dragonfly
+module github.com/CWBudde/Dragonfly
 
 go 1.23.3
 

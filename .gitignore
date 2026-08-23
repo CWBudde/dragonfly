@@ -97,3 +97,5 @@ examples/*/[a-z]*
 !examples/*/go.mod
 !examples/*/go.sum
 !examples/*/README.md
+# examples/ is itself a module, so `go build` there drops examples/examples.
+examples/examples

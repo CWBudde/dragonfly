@@ -1,7 +1,7 @@
-module github.com/MeKo-Christian/dragonfly/examples
+module github.com/CWBudde/Dragonfly/examples
 
 go 1.23.3
 
-require github.com/MeKo-Christian/dragonfly v0.0.0
+require github.com/CWBudde/Dragonfly v0.0.0
 
-replace github.com/MeKo-Christian/dragonfly => ..
+replace github.com/CWBudde/Dragonfly => ..

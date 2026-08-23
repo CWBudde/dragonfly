@@ -4,7 +4,7 @@
 
 Go implementation of Seyedali Mirjalili's Dragonfly Algorithm (DA), a swarm-intelligence metaheuristic derived from the static and dynamic swarming behaviour of dragonflies. It covers all three variants of the original paper: **DA** (single-objective continuous), **BDA** (binary/discrete, via transfer functions), and **MODA** (multi-objective, via a hypercube-partitioned Pareto archive).
 
-Module `github.com/MeKo-Christian/dragonfly`, package `dragonfly`, flat at the repository root, Go 1.23.3. Standard library only; the sole planned direct dependency is `github.com/cucumber/godog`, test-only.
+Module `github.com/CWBudde/Dragonfly`, package `dragonfly`, flat at the repository root, Go 1.23.3. Standard library only; the sole planned direct dependency is `github.com/cucumber/godog`, test-only.
 
 **There is no Go source in the repository yet** — only the scaffold (tooling, workflows, docs skeleton). `PLAN.md` is the specification and the progress tracker; read it before writing code, and take all algorithm facts from its §1 rather than from recall.
 

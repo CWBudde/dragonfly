@@ -5,7 +5,7 @@ metaheuristic Seyedali Mirjalili introduced in 2016. It models the static and dy
 swarming behaviour of dragonflies — separation, alignment, cohesion, attraction to food and
 distraction from enemies — and covers all three variants from the original paper.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/MeKo-Christian/dragonfly.svg)](https://pkg.go.dev/github.com/MeKo-Christian/dragonfly)
+[![Go Reference](https://pkg.go.dev/badge/github.com/CWBudde/Dragonfly.svg)](https://pkg.go.dev/github.com/CWBudde/Dragonfly)
 
 Sibling project: [Mayfly](https://github.com/cwbudde/mayfly), which shares this library's API
 style, tooling and conventions.
@@ -38,7 +38,7 @@ well-tuned optimizer could.
 ### Installation
 
 ```sh
-go get github.com/MeKo-Christian/dragonfly
+go get github.com/CWBudde/Dragonfly
 ```
 
 ### Basic usage
@@ -50,7 +50,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/MeKo-Christian/dragonfly"
+	dragonfly "github.com/CWBudde/Dragonfly"
 )
 
 func main() {

@@ -4,7 +4,7 @@ A task-oriented map of `package dragonfly`. Everything lives in one flat package
 repository root; there is no `internal/`, no `pkg/` and no sub-package to import.
 
 ```go
-import "github.com/MeKo-Christian/dragonfly"
+import dragonfly "github.com/CWBudde/Dragonfly"
 ```
 
 For the field-by-field reference see the [Configuration Guide](configuration.md); for

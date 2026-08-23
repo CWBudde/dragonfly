@@ -29,7 +29,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/MeKo-Christian/dragonfly"
+	dragonfly "github.com/CWBudde/Dragonfly"
 )
 
 const (

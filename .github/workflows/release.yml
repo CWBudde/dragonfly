@@ -55,7 +55,7 @@ jobs:
           test -s CHANGELOG.md
           test -s README.md
           grep -Fq '## [${{ steps.version.outputs.version }}]' CHANGELOG.md
-          test "$(go list -m)" = "github.com/MeKo-Christian/dragonfly"
+          test "$(go list -m)" = "github.com/CWBudde/Dragonfly"
           go mod verify
           go mod tidy -diff
           go vet ./...

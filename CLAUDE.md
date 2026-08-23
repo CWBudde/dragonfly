@@ -22,7 +22,7 @@ under _Architecture & Core Concepts_ is the **target** design, not the current s
 **PLAN.md is the single source of truth for progress.** Before starting work, read PLAN.md
 and check which phase's boxes are ticked; do not infer status from this file.
 
-**Module**: `github.com/MeKo-Christian/dragonfly`, package `dragonfly`, flat at the repo root
+**Module**: `github.com/CWBudde/Dragonfly`, package `dragonfly`, flat at the repo root
 (no `internal/`, no `pkg/`, no `cmd/`). Go 1.23.3. The only planned direct dependency is
 `github.com/cucumber/godog`, and it is test-only. Everything else is standard library.
 

@@ -19,7 +19,7 @@ import (
 	"log/slog"
 	"math/rand"
 
-	"github.com/MeKo-Christian/dragonfly"
+	dragonfly "github.com/CWBudde/Dragonfly"
 )
 
 // ExampleOptimize shows the four fields a run requires: the objective, the
