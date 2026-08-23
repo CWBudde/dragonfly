@@ -60,8 +60,46 @@ setup-deps:
     # Markdown/JSON/YAML formatter
     command -v prettier >/dev/null 2>&1 || { echo "Installing prettier..."; npm install -g prettier || echo "Prettier installation failed - npm not found."; }
 
-    # TOML formatter
-    command -v taplo >/dev/null 2>&1 || { echo "Installing taplo..."; cargo install taplo-cli --locked || echo "Taplo installation failed - cargo not found."; }
+    # Shell linter. treefmt.toml declares it, so without it every *.sh file is
+    # skipped silently; see the note on taplo below.
+    command -v shellcheck >/dev/null 2>&1 || { echo "Installing shellcheck..."; sudo apt-get install -y shellcheck || echo "Shellcheck installation failed - install it manually."; }
+
+    # TOML formatter. Prefer the prebuilt binary: `cargo install taplo-cli` needs a
+    # Rust toolchain, and when it is absent treefmt just skips every .toml file --
+    # `--allow-missing-formatter` makes a missing formatter silent, so `just
+    # check-formatted` goes green locally and fails in CI, which is exactly how
+    # .golangci.toml stayed unformatted through nine phases.
+    command -v taplo >/dev/null 2>&1 || {
+        echo "Installing taplo..."
+        curl -fsSL https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-x86_64.gz \
+            | gunzip > "$HOME/go/bin/taplo" && chmod +x "$HOME/go/bin/taplo" \
+            || cargo install taplo-cli --locked \
+            || echo "Taplo installation failed - install it manually."
+    }
+
+# Fail if any formatter treefmt.toml declares is missing.
+#
+# treefmt runs with --allow-missing-formatter so a partial toolchain does not block
+# work, but that means `just check-formatted` proves less locally than it does in CI.
+# Run this to find out which formatters are actually doing anything.
+check-tools:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    export PATH=$HOME/go/bin:$PATH
+    missing=0
+    for tool in gofumpt gci prettier taplo shfmt shellcheck; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            printf '  ok      %s\n' "$tool"
+        else
+            printf '  MISSING %s\n' "$tool"
+            missing=1
+        fi
+    done
+    if [[ "$missing" -ne 0 ]]; then
+        echo "Some formatters are missing; treefmt silently skips the files they own." >&2
+        echo "Run: just setup-deps" >&2
+        exit 1
+    fi
 
 # Format all files with treefmt
 fmt:
