@@ -146,8 +146,15 @@ type Config struct {
 	Convergence    *ConvergenceConfig `json:"convergence,omitempty"`
 	Constraints    *ConstraintConfig  `json:"constraints,omitempty"`
 	BoundaryMethod BoundaryMethod     `json:"boundary_method"`
-	LowerBound     float64            `json:"lower_bound"`
-	UpperBound     float64            `json:"upper_bound"`
+
+	// TransferFunc names the transfer function the binary variant turns a step
+	// component into a bit-flip probability with. An empty value means
+	// DefaultTransferFunction, the paper's v3. It is ignored by the continuous
+	// entry points.
+	TransferFunc TransferFunction `json:"transfer_function,omitempty"`
+
+	LowerBound float64 `json:"lower_bound"`
+	UpperBound float64 `json:"upper_bound"`
 
 	// InertiaWeightStart and InertiaWeightEnd bracket the linearly decreasing
 	// inertia weight w = start - t*(start-end)/T.
@@ -188,6 +195,13 @@ type Config struct {
 	// still for that iteration.
 	UseLevyWalk    bool `json:"use_levy_walk"`
 	EnableParallel bool `json:"enable_parallel"`
+
+	// UseBinary marks a configuration as belonging to the binary variant: 0/1
+	// positions, the bit-flip position update, and the transfer function in
+	// TransferFunc. It is what NewBinaryConfig sets and what the variant
+	// registry dispatches on; OptimizeBinary and OptimizeBinaryContext run the
+	// binary variant regardless of it, and Optimize ignores it.
+	UseBinary bool `json:"use_binary"`
 }
 
 // Result holds the results of the optimization.

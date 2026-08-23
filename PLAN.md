@@ -360,11 +360,11 @@ before the complexity is added.
 
 ## Phase 5: BDA — binary variant
 
-- [ ] `binary.go` — `TransferFunction` type, the v1–v4 / s1–s4 registry, bit-flip update
-- [ ] `NewBinaryConfig()`
+- [x] `binary.go` — `TransferFunction` type, the v1–v4 / s1–s4 registry, bit-flip update
+- [x] `NewBinaryConfig()`
 - [ ] `evaluateParallelBinary`
-- [ ] `binary_test.go` — transfer-function curves at sampled points, bit-flip statistics
-- [ ] `examples/feature_selection/` — a worked feature-selection problem
+- [x] `binary_test.go` — transfer-function curves at sampled points, bit-flip statistics
+- [x] `examples/feature_selection/` — a worked feature-selection problem
 
 **Gate**: each transfer function matches its analytic form at sampled points; a
 knapsack-style toy problem reaches the known optimum.

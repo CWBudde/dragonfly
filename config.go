@@ -78,3 +78,31 @@ func NewFastConvergenceConfig() *Config {
 
 	return config
 }
+
+// NewBinaryConfig creates a configuration for BDA, the binary variant, where a
+// position is a bit string and the step is turned into a per-bit flip
+// probability by a transfer function.
+// You must set ObjectiveFunc and ProblemSize; the bounds are fixed by the
+// variant and are already set.
+//
+// The search box is the unit interval, because a position component is a bit
+// and every schedule that scales with (ub-lb) is written for that box.
+// Config.BoundaryMethod and Config.UseLevyWalk are ignored in binary mode --
+// see OptimizeBinaryContext for why neither has a meaning for a 0/1 vector.
+//
+// The step clamp is widened from a tenth of the box to six times it. The
+// transfer functions saturate by |Δx| ≈ 6, so clamping there is what makes the
+// whole range of flip probabilities reachable; the continuous default of 0.1
+// would cap every flip probability at about a tenth and freeze the swarm.
+// Treat the exact value as this implementation's choice rather than a quoted
+// paper constant until it has been checked against BDA.m.
+func NewBinaryConfig() *Config {
+	config := NewDefaultConfig()
+	config.LowerBound = 0
+	config.UpperBound = 1
+	config.TransferFunc = DefaultTransferFunction
+	config.MaxStepRatio = 6.0
+	config.UseBinary = true
+
+	return config
+}
