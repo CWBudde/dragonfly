@@ -164,9 +164,19 @@ new-benchmark name:
     echo "Added {{name}} function template to functions.go"
 
 # Run specific optimization function
+#
+# Both `just optimize Sphere 30 1000` and `just optimize func=Sphere size=30
+# iter=1000` work. just passes everything after the recipe name positionally,
+# so the `name=` prefixes arrive as part of the value and are stripped here --
+# the same idiom the release recipes use for `version=`.
 optimize func="Sphere" size="30" iter="1000":
     #!/usr/bin/env bash
+    set -euo pipefail
+    opt_func="{{func}}"; opt_func="${opt_func#func=}"
+    opt_size="{{size}}"; opt_size="${opt_size#size=}"
+    opt_iter="{{iter}}"; opt_iter="${opt_iter#iter=}"
     cd examples
+    trap 'rm -f temp_optimize.go' EXIT
     cat > temp_optimize.go << EOF
     package main
     import (
@@ -175,9 +185,9 @@ optimize func="Sphere" size="30" iter="1000":
     )
     func main() {
         config := dragonfly.NewDefaultConfig()
-        config.ObjectiveFunc = dragonfly.{{func}}
-        config.ProblemSize = {{size}}
-        config.MaxIterations = {{iter}}
+        config.ObjectiveFunc = dragonfly.$opt_func
+        config.ProblemSize = $opt_size
+        config.MaxIterations = $opt_iter
         config.LowerBound = -10
         config.UpperBound = 10
         
@@ -186,13 +196,12 @@ optimize func="Sphere" size="30" iter="1000":
             panic(err)
         }
         
-        fmt.Printf("Function: {{func}}\n")
+        fmt.Printf("Function: $opt_func\n")
         fmt.Printf("Best Cost: %.10f\n", result.GlobalBest.Cost)
         fmt.Printf("Evaluations: %d\n", result.FuncEvalCount)
     }
     EOF
     go run temp_optimize.go
-    rm temp_optimize.go
 
 # Install development tools (see also: just setup-deps)
 install-tools: setup-deps

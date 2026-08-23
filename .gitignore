@@ -88,3 +88,12 @@ scratch/
 .cache/
 
 
+
+# Compiled example binaries. `go build` inside an examples/ subdirectory drops
+# an extensionless binary named after its directory, which no rule above
+# matches on Linux.
+examples/*/[a-z]*
+!examples/*/*.go
+!examples/*/go.mod
+!examples/*/go.sum
+!examples/*/README.md
