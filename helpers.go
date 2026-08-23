@@ -274,6 +274,11 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("invalid convergence config: %w", convergenceErr)
 	}
 
+	constraintsErr := validateConstraintBlock(config.Constraints)
+	if constraintsErr != nil {
+		return fmt.Errorf("invalid constraint config: %w", constraintsErr)
+	}
+
 	return nil
 }
 

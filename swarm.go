@@ -42,7 +42,9 @@ func withinRadius(a, b []float64, radius float64) bool {
 	for k := range a {
 		distance := math.Abs(a[k] - b[k])
 
-		if !(distance <= radius) { //nolint:staticcheck // NaN must fail the test, so the negation is not equivalent to >
+		// Written as a negated <= rather than a >, so that a NaN component
+		// fails the test: every comparison against NaN is false.
+		if !(distance <= radius) {
 			return false
 		}
 

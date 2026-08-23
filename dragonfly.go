@@ -39,9 +39,15 @@ import (
 // separate functions without threading five parameters and four return values
 // through each of them.
 type runState struct {
-	swarm []Dragonfly
-	food  Best
-	enemy Best
+	// evaluator is the single authority on what "better" means: it scores a
+	// position, records its aggregate constraint violation, and ranks two
+	// candidates under the configured constraint policy. Every objective call
+	// in a run goes through it, so an unconstrained run and a constrained one
+	// differ only in the policy it holds.
+	evaluator *constraintEvaluator
+	swarm     []Dragonfly
+	food      Best
+	enemy     Best
 	// funcEvals counts every call to config.ObjectiveFunc, including the ones
 	// made while initializing the swarm.
 	funcEvals int
@@ -52,15 +58,39 @@ func Optimize(config *Config) (*Result, error) {
 	return OptimizeContext(context.Background(), config)
 }
 
-// OptimizeContext runs the Dragonfly Algorithm, honoring context cancellation.
+// OptimizeContext runs the Dragonfly Algorithm, honoring context cancellation
+// and the supplied run options.
 //
 // Cancellation is checked at the top of every iteration. A canceled run
 // returns a nil result and ctx.Err(); partial results are deliberately not
 // reported, so a caller cannot mistake an aborted run for a completed one.
-func OptimizeContext(ctx context.Context, config *Config) (*Result, error) {
+//
+// Observers registered through WithProgressObserver and WithPopulationObserver
+// receive deep copies and run synchronously on this goroutine. They must not
+// draw random numbers or mutate what they are handed: a seeded run is required
+// to be reproducible, and an observer that reaches back into the swarm would
+// be a back door around that.
+func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) (*Result, error) {
+	contextErr := requireContext(ctx)
+	if contextErr != nil {
+		return nil, contextErr
+	}
+
+	resolved, optionsErr := resolveRunOptions(options)
+	if optionsErr != nil {
+		return nil, optionsErr
+	}
+
 	validationErr := validateConfig(config)
 	if validationErr != nil {
 		return nil, validationErr
+	}
+
+	// The initial population is checked only after the config is known good,
+	// because the check is against ProblemSize, NPop and the bounds.
+	populationErr := validateInitialPopulation(config, resolved)
+	if populationErr != nil {
+		return nil, populationErr
 	}
 
 	// The seed is drawn whether or not it is used, so Result.Seed is always
@@ -74,9 +104,14 @@ func OptimizeContext(ctx context.Context, config *Config) (*Result, error) {
 	}
 
 	rng := config.Rand
-	state := initializeRun(config, rng)
+	state := initializeRun(config, resolved, rng)
+	tracker := newConvergenceTracker(config.Convergence, state.food, state.evaluator)
+
+	logOptimizationStarted(ctx, resolved.logger, config)
 
 	curve := make([]float64, 0, config.MaxIterations)
+	reason := TerminationMaxIterations
+	completed := 0
 
 	for t := range config.MaxIterations {
 		ctxErr := ctx.Err()
@@ -90,21 +125,36 @@ func OptimizeContext(ctx context.Context, config *Config) (*Result, error) {
 			moveDragonfly(state, i, config, weights, rng)
 		}
 
-		state.evaluateSwarm(config)
+		state.evaluateSwarm()
 		curve = append(curve, state.food.Cost)
+		completed = t + 1
+
+		notifyProgress(resolved.observer, completed, state.funcEvals, state.food)
+		notifyPopulation(resolved.populationObserver, completed, state.funcEvals,
+			state.food, state.enemy, state.swarm)
+		logIterationCompleted(ctx, resolved.logger, completed, state.funcEvals, state.food)
+
+		stopReason, stop := tracker.observe(completed, state.food)
+		if stop {
+			reason = stopReason
+
+			break
+		}
 	}
 
-	return &Result{
-		ConvergenceCurve: curve,
-		// Only the iteration cap can end a run today; the target-cost and
-		// stagnation criteria land with convergence.go in a later phase.
-		TerminationReason: TerminationMaxIterations,
+	result := &Result{
+		ConvergenceCurve:  curve,
+		TerminationReason: reason,
 		GlobalBest:        state.food,
 		Worst:             state.enemy,
 		FuncEvalCount:     state.funcEvals,
-		IterationCount:    config.MaxIterations,
+		IterationCount:    completed,
 		Seed:              seed,
-	}, nil
+	}
+
+	logOptimizationCompleted(ctx, resolved.logger, result)
+
+	return result, nil
 }
 
 // initializeRun builds the starting swarm and evaluates it, so that the food
@@ -114,23 +164,52 @@ func OptimizeContext(ctx context.Context, config *Config) (*Result, error) {
 // uniformly from [LowerBound, UpperBound]. Seeding ΔX from the whole search box
 // rather than from zero is what gives the first few iterations their momentum;
 // the step clamp reins it in from the first move onwards.
-func initializeRun(config *Config, rng *rand.Rand) *runState {
+//
+// A caller-supplied initial population replaces the drawn positions of the
+// leading slots only. The step draw and every slot beyond the supplied
+// positions are left alone, so seeding the first few dragonflies does not shift
+// the random stream the rest of the swarm is built from.
+func initializeRun(config *Config, options runOptions, rng *rand.Rand) *runState {
 	swarm := make([]Dragonfly, config.NPop)
 	for i := range swarm {
+		position := unifrndVec(config.LowerBound, config.UpperBound, config.ProblemSize, rng)
+		step := unifrndVec(config.LowerBound, config.UpperBound, config.ProblemSize, rng)
+
+		if i < len(options.initialPositions) {
+			position = copyVec(options.initialPositions[i])
+		}
+
 		swarm[i] = Dragonfly{
-			Position: unifrndVec(config.LowerBound, config.UpperBound, config.ProblemSize, rng),
-			Step:     unifrndVec(config.LowerBound, config.UpperBound, config.ProblemSize, rng),
+			Position: position,
+			Step:     step,
 			Cost:     math.Inf(1),
 		}
 	}
 
 	state := &runState{
-		swarm: swarm,
-		food:  Best{Cost: math.Inf(1)},
-		enemy: Best{Cost: math.Inf(-1)},
+		evaluator: newConstraintEvaluator(config.ObjectiveFunc, config.Constraints),
+		swarm:     swarm,
+		// The food starts maximally infeasible as well as maximally costly, so
+		// that the first candidate displaces it under either constraint policy.
+		// The enemy starts feasible and maximally cheap for the mirror-image
+		// reason: under Deb's rules an infeasible candidate is worse than a
+		// feasible one, so the first infeasible dragonfly seen becomes the
+		// enemy, which is what the enemy term should be steering away from.
+		// The position slices are allocated up front because
+		// copyDragonflyToBest overwrites them in place rather than
+		// reallocating on every improvement.
+		food: Best{
+			Position:            make([]float64, config.ProblemSize),
+			Cost:                math.Inf(1),
+			ConstraintViolation: math.Inf(1),
+		},
+		enemy: Best{
+			Position: make([]float64, config.ProblemSize),
+			Cost:     math.Inf(-1),
+		},
 	}
 
-	state.evaluateSwarm(config)
+	state.evaluateSwarm()
 
 	return state
 }
@@ -138,24 +217,32 @@ func initializeRun(config *Config, rng *rand.Rand) *runState {
 // evaluateSwarm scores every dragonfly and updates the food (best) and enemy
 // (worst) incumbents.
 //
-// Every objective result passes through sanitizeCost, so a NaN or -Inf from a
-// misbehaving objective becomes +Inf rather than an incumbent no later
-// candidate could ever displace.
+// Scoring goes through the run's constraintEvaluator rather than calling the
+// objective directly, which is what keeps Dragonfly.ConstraintViolation
+// populated and guarantees exactly one constraint evaluation per objective
+// evaluation. Every objective result passes through sanitizeCost, so a NaN or
+// -Inf from a misbehaving objective becomes +Inf rather than an incumbent no
+// later candidate could ever displace.
+//
+// The food and enemy are chosen by the evaluator's ranking, not by comparing
+// Cost. Under a constrained run a raw-cost comparison would happily steer the
+// swarm toward an infeasible optimum; the enemy uses the same ranking read
+// backwards, so the worst candidate is the one the incumbent enemy still beats.
 //
 // All calls happen on the calling goroutine. Parallel evaluation arrives in a
 // later phase and depends on every RNG draw staying here.
-func (state *runState) evaluateSwarm(config *Config) {
+func (state *runState) evaluateSwarm() {
 	for i := range state.swarm {
 		fly := &state.swarm[i]
-		fly.Cost = sanitizeCost(config.ObjectiveFunc(fly.Position))
+		state.evaluator.evaluateDragonfly(fly, true)
 		state.funcEvals++
 
-		if fly.Cost < state.food.Cost {
-			state.food = Best{Position: copyVec(fly.Position), Cost: fly.Cost}
+		if state.evaluator.betterDragonflyThanBest(fly, state.food) {
+			copyDragonflyToBest(&state.food, fly)
 		}
 
-		if fly.Cost > state.enemy.Cost {
-			state.enemy = Best{Position: copyVec(fly.Position), Cost: fly.Cost}
+		if state.evaluator.better(evaluationFromBest(state.enemy), evaluationFromDragonfly(fly)) {
+			copyDragonflyToBest(&state.enemy, fly)
 		}
 	}
 }

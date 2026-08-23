@@ -314,14 +314,14 @@ end-to-end convergence test.
 
 ## Phase 3: Lifecycle, constraints, convergence, monitoring
 
-- [ ] `lifecycle.go` — `RunOption` as a struct wrapping a private error-returning apply
+- [x] `lifecycle.go` — `RunOption` as a struct wrapping a private error-returning apply
       func, `resolveRunOptions` rejecting the zero value, `WithInitialPopulation`,
       `WithProgressObserver`, `WithPopulationObserver`, `WithLogger`
-- [ ] `constraints.go` — ported from Mayfly with unchanged semantics
-- [ ] `convergence.go` — `convergenceTracker.observe`
-- [ ] `monitoring.go` — slog events, `ExportConvergenceCSV`, `ExportConvergenceJSON`
-- [ ] `config_loader.go` — JSON load/save, `ValidateConfig`, presets, `AutoTuneConfig`
-- [ ] Matching `_test.go` files for each
+- [x] `constraints.go` — ported from Mayfly with unchanged semantics
+- [x] `convergence.go` — `convergenceTracker.observe`
+- [x] `monitoring.go` — slog events, `ExportConvergenceCSV`, `ExportConvergenceJSON`
+- [x] `config_loader.go` — JSON load/save, `ValidateConfig`, presets, `AutoTuneConfig`
+- [x] Matching `_test.go` files for each
 
 **Gate**: the target-cost stop refuses to fire on an infeasible incumbent; observers
 receive deep copies and run synchronously on the caller's goroutine; a cancelled context
