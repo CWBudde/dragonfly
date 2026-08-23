@@ -391,13 +391,13 @@ end of a run.
 
 ## Phase 7: Framework layer
 
-- [ ] `variants.go` — `AlgorithmVariant` interface, `DAVariant` / `BDAVariant` /
+- [x] `variants.go` — `AlgorithmVariant` interface, `DAVariant` / `BDAVariant` /
       `MODAVariant`, the registry, `NewVariant`, `ListVariants`, `GetAllVariants`,
       `VariantBuilder`
-- [ ] `selector.go` — `AlgorithmSelector`, `ProblemCharacteristics`, `ClassifyProblem`,
+- [x] `selector.go` — `AlgorithmSelector`, `ProblemCharacteristics`, `ClassifyProblem`,
       `RecommendForBenchmark`
-- [ ] `comparison.go` — `ComparisonRunner`, Wilcoxon signed-rank, Friedman, CSV/JSON export
-- [ ] `variants_test.go`, `selector_test.go`, `comparison_test.go`
+- [x] `comparison.go` — `ComparisonRunner`, Wilcoxon signed-rank, Friedman, CSV/JSON export
+- [x] `variants_test.go`, `selector_test.go`, `comparison_test.go`
 
 **Gate**: `ComparisonRunner` derives paired, identical seeds in sequential and parallel
 mode; `GetAllVariants()` returns a stable canonical order.
@@ -411,18 +411,18 @@ version, but it is what makes the two libraries comparable head-to-head — the 
 
 ## Phase 8: BDD, regression, benchmarks
 
-- [ ] `features/boundary_handling.feature` — wrap vs clamp vs reflect
-- [ ] `features/configuration_validation.feature`
-- [ ] `features/constraint_handling.feature`
-- [ ] `features/optimization_convergence.feature`
-- [ ] `features/variant_execution.feature`
-- [ ] `integration_test.go` — godog wiring, `TestFeatures`
-- [ ] `regression_test.go` — `RegressionBaseline` entries with tolerated degradation factors
-- [ ] `benchmark_test.go` — `BenchmarkOptimize<Function>_<Variant>`,
+- [x] `features/boundary_handling.feature` — wrap vs clamp vs reflect
+- [x] `features/configuration_validation.feature`
+- [x] `features/constraint_handling.feature`
+- [x] `features/optimization_convergence.feature`
+- [x] `features/variant_execution.feature`
+- [x] `integration_test.go` — godog wiring, `TestFeatures`
+- [x] `regression_test.go` — `RegressionBaseline` entries with tolerated degradation factors
+- [x] `benchmark_test.go` — `BenchmarkOptimize<Function>_<Variant>`,
       `BenchmarkDimensionScaling`, `BenchmarkPopulationSize`
-- [ ] `performance_benchmark_test.go` — `BenchmarkOptimizeBaseline`, the profiling anchor
-- [ ] `example_test.go` — `ExampleOptimize`, `ExampleOptimizeContext`, `ExampleNewBuilder`
-- [ ] `go.mod`: add `github.com/cucumber/godog`
+- [x] `performance_benchmark_test.go` — `BenchmarkOptimizeBaseline`, the profiling anchor
+- [x] `example_test.go` — `ExampleOptimize`, `ExampleOptimizeContext`, `ExampleNewBuilder`
+- [x] `go.mod`: add `github.com/cucumber/godog`
 
 **Rationale**: Baselines encode *tolerated degradation factors*, not exact expected values.
 A stochastic optimizer's output is not a golden file; the question a regression test can
