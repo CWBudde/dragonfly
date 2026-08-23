@@ -77,6 +77,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   atomic same-directory replacement and serialize unavailable comparison costs as `null`.
 - CI pins golangci-lint, tests the minimum and current Go releases, enforces 80% coverage and
   builds every nested example module and the WebAssembly target.
+- `validateMultiObjectiveConfig` rejects `Convergence.TargetCost` and
+  `ConstraintHandlingPenalty` on a MODA config. Neither has a multi-objective reading -- a
+  scalar target says nothing about a front, and penalizing every objective component is not
+  a defensible default -- and both were previously accepted and then silently ignored.
+- `Config.EnemyCutoffFraction` is documented as inert at its default. The enemy weight
+  follows `mc`, which already reaches zero at half the run, so the `0.75` cutoff only ever
+  replaces a zero with a zero; only a fraction below `0.5` changes anything, and nothing at
+  all when `EnemyWeight` is pinned off `WeightAuto`. Behaviour is unchanged -- the field
+  stays because the paper and `DA.m` carry both rules.
 
 ### Fixed
 
@@ -92,26 +101,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   19.7 ms and 22,534; ZDT1 from 11.3 ms and 33,245 to 8.0 ms and 16,947. One consequence is
   worth knowing: a `ParetoArchive.Solutions` slice held across a mutation is no longer a
   snapshot of the archive as it was.
-
-### Fixed
-
 - `Levy` no longer panics on an empty position vector, and `Ackley` and `HappyCat` no
   longer return `NaN` for one. The whole single-objective benchmark suite now follows one
   documented convention -- `f([]) == 0` -- asserted for all fifteen functions by
   `TestBenchmarkFunctionsEmptyInput`. The same fix landed in the sibling Mayfly library, so
   the two suites stay numerically comparable.
-
-### Changed
-
-- `validateMultiObjectiveConfig` rejects `Convergence.TargetCost` and
-  `ConstraintHandlingPenalty` on a MODA config. Neither has a multi-objective reading -- a
-  scalar target says nothing about a front, and penalizing every objective component is not
-  a defensible default -- and both were previously accepted and then silently ignored.
-- `Config.EnemyCutoffFraction` is documented as inert at its default. The enemy weight
-  follows `mc`, which already reaches zero at half the run, so the `0.75` cutoff only ever
-  replaces a zero with a zero; only a fraction below `0.5` changes anything, and nothing at
-  all when `EnemyWeight` is pinned off `WeightAuto`. Behaviour is unchanged -- the field
-  stays because the paper and `DA.m` carry both rules.
 
 ## [0.1.0] - 2026-08-23
 
