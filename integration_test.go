@@ -964,13 +964,94 @@ func registerVariantSteps(sc *godog.ScenarioContext, fc *featureContext) {
 		fc.everyArchivedPositionShouldBeWithinBounds)
 }
 
+// registerDispatchSteps wires features/variant_dispatch.feature.
+func registerDispatchSteps(sc *godog.ScenarioContext, dc *dispatchContext) {
+	registerRegistrySteps(sc, dc)
+	registerBuilderSteps(sc, dc)
+	registerSelectorSteps(sc, dc)
+	registerComparisonSteps(sc, dc)
+}
+
+// registerRegistrySteps wires NewVariant, GetAllVariants and
+// AlgorithmVariant.Run.
+func registerRegistrySteps(sc *godog.ScenarioContext, dc *dispatchContext) {
+	sc.Step(`^I create the variant named "([^"]*)"$`, dc.iCreateTheVariantNamed)
+	sc.Step(`^the "([^"]*)" variant$`, dc.theVariant)
+	sc.Step(`^the variant name should be "([^"]*)"$`, dc.theVariantNameShouldBe)
+	sc.Step(`^variant creation should fail with an error containing "([^"]*)"$`,
+		dc.variantCreationShouldFailWith)
+	sc.Step(`^I list all variants (\d+) times$`, dc.iListAllVariantsTimes)
+	sc.Step(`^every listing should be "([^"]*)"$`, dc.everyListingShouldBe)
+	sc.Step(`^I run the variant for (\d+) iterations$`, dc.iRunTheVariantForIterations)
+	sc.Step(`^I run the variant on a binary configuration for (\d+) iterations$`,
+		dc.iRunTheVariantOnABinaryConfiguration)
+	sc.Step(`^the variant run should succeed$`, dc.theVariantRunShouldSucceed)
+	sc.Step(`^the variant run should be refused as a binary configuration$`,
+		dc.theRunShouldBeRefusedAsBinaryConfig)
+	sc.Step(`^the variant run should be refused as multi-objective$`,
+		dc.theRunShouldBeRefusedAsMultiObjective)
+	sc.Step(`^running it through RunMultiObjective for (\d+) iterations should succeed$`,
+		dc.runningItThroughRunMultiObjective)
+}
+
+// registerBuilderSteps wires NewBuilder and VariantBuilder.
+func registerBuilderSteps(sc *godog.ScenarioContext, dc *dispatchContext) {
+	sc.Step(`^I build the "([^"]*)" variant for (\d+) iterations with population (\d+)$`,
+		dc.iBuildTheVariantWithPopulation)
+	sc.Step(`^I build the "([^"]*)" variant for (\d+) iterations with bounds (-?[\d.]+) to (-?[\d.]+)$`,
+		dc.iBuildTheVariantWithBounds)
+	sc.Step(`^the built configuration should target (\d+) iterations and (\d+) dragonflies$`,
+		dc.theBuiltConfigurationShouldTarget)
+	sc.Step(`^the built configuration bounds should be (-?[\d.]+) and (-?[\d.]+)$`,
+		dc.theBuiltConfigurationBoundsShouldBe)
+	sc.Step(`^building should fail with an error containing "([^"]*)"$`, dc.buildingShouldFailWith)
+	sc.Step(`^optimizing through the builder should succeed$`,
+		dc.optimizingThroughTheBuilderShouldSucceed)
+}
+
+// registerSelectorSteps wires AlgorithmSelector, ClassifyProblem and
+// RecommendForBenchmark.
+func registerSelectorSteps(sc *godog.ScenarioContext, dc *dispatchContext) {
+	sc.Step(`^a problem that is ([\w-]+)$`, dc.aProblemThatIs)
+	sc.Step(`^I ask the selector for its best recommendation$`,
+		dc.iAskTheSelectorForItsBestRecommendation)
+	sc.Step(`^I classify the problem with seed (\d+)$`, dc.iClassifyTheProblemWithSeed)
+	sc.Step(`^the classified dimensionality should be (\d+)$`, dc.theClassifiedDimensionalityShouldBe)
+	sc.Step(`^the selector should recommend "([^"]*)" for the classification$`,
+		dc.theSelectorShouldRecommendForTheClassification)
+	sc.Step(`^I ask for a recommendation for the "([^"]*)" benchmark$`,
+		dc.iAskForARecommendationForTheBenchmark)
+	sc.Step(`^the recommended variant should be "([^"]*)"$`, dc.theRecommendedVariantShouldBe)
+	sc.Step(`^the recommendation reason should not be empty$`,
+		dc.theRecommendationReasonShouldNotBeEmpty)
+	sc.Step(`^the recommendation reason should mention "([^"]*)"$`,
+		dc.theRecommendationReasonShouldMention)
+	sc.Step(`^the recommendation score should be between 0 and 1$`,
+		dc.theRecommendationScoreShouldBeInUnitInterval)
+}
+
+// registerComparisonSteps wires ComparisonRunner.
+func registerComparisonSteps(sc *godog.ScenarioContext, dc *dispatchContext) {
+	sc.Step(`^I compare the "([^"]*)" and "([^"]*)" variants over (\d+) runs of (\d+) iterations `+
+		`with base seed (\d+)$`, dc.iCompareTheVariants)
+	sc.Step(`^the comparison should succeed$`, dc.theComparisonShouldSucceed)
+	sc.Step(`^the comparison should be refused as multi-objective$`,
+		dc.theComparisonShouldBeRefusedAsMultiObjective)
+	sc.Step(`^the comparison should report statistics for (\d+) variants$`,
+		dc.theComparisonShouldReportStatisticsFor)
+	sc.Step(`^run k of every variant should have used the base seed plus k$`,
+		dc.runKShouldHaveUsedTheBaseSeedPlusK)
+}
+
 // InitializeScenario registers every step definition against a scenario-scoped
 // context, so that state never leaks from one scenario into the next.
 func InitializeScenario(sc *godog.ScenarioContext) {
 	fc := &featureContext{}
+	dc := &dispatchContext{fc: fc}
 
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		*fc = featureContext{}
+		*dc = dispatchContext{fc: fc}
 
 		return ctx, nil
 	})
@@ -980,6 +1061,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	registerValidationSteps(sc, fc)
 	registerConstraintSteps(sc, fc)
 	registerVariantSteps(sc, fc)
+	registerDispatchSteps(sc, dc)
 }
 
 // TestFeatures runs the Gherkin suite in features/ through godog.
@@ -1000,4 +1082,517 @@ func TestFeatures(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("godog reported a non-zero status: feature tests failed")
 	}
+}
+
+// --- variant dispatch -------------------------------------------------------
+
+// dispatchContext is the scenario state features/variant_dispatch.feature
+// builds up. It is a separate struct from featureContext, and holds a pointer
+// back to it, so that the dispatch steps can reuse the shared "then" steps --
+// which read fc.result -- without widening featureContext itself.
+type dispatchContext struct {
+	fc              *featureContext
+	variant         AlgorithmVariant
+	builder         *VariantBuilder
+	builtConfig     *Config
+	comparison      *ComparisonResult
+	characteristics *ProblemCharacteristics
+	listings        [][]string
+	recommendation  AlgorithmRecommendation
+	err             error
+}
+
+// errNoVariant is what a dispatch step reports when the scenario never
+// resolved a variant, turning a mis-wired feature file into a readable failure.
+var errNoVariant = errors.New("no variant was created")
+
+func (dc *dispatchContext) iCreateTheVariantNamed(name string) error {
+	dc.variant, dc.err = NewVariant(name)
+
+	return nil
+}
+
+// theVariant is the "given" form: an unresolvable name fails the step at once,
+// because a scenario that goes on to run a nil variant reports the wrong thing.
+func (dc *dispatchContext) theVariant(name string) error {
+	variant, err := NewVariant(name)
+	if err != nil {
+		return err
+	}
+
+	dc.variant = variant
+
+	return nil
+}
+
+func (dc *dispatchContext) theVariantNameShouldBe(want string) error {
+	if dc.err != nil {
+		return fmt.Errorf("NewVariant failed: %w", dc.err)
+	}
+
+	if dc.variant == nil {
+		return errNoVariant
+	}
+
+	if dc.variant.Name() != want {
+		return fmt.Errorf("variant name is %q, want %q", dc.variant.Name(), want)
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) variantCreationShouldFailWith(fragment string) error {
+	if dc.err == nil {
+		return fmt.Errorf("NewVariant accepted a name that should fail on %q", fragment)
+	}
+
+	if dc.variant != nil {
+		return errors.New("NewVariant returned a variant alongside an error")
+	}
+
+	return requireErrorMentions(dc.err, fragment)
+}
+
+// requireErrorMentions is the shared shape of every "fail with an error
+// containing" assertion in this file.
+func requireErrorMentions(err error, fragment string) error {
+	if !strings.Contains(err.Error(), fragment) {
+		return fmt.Errorf("error %q does not mention %q", err.Error(), fragment)
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) iListAllVariantsTimes(times int) error {
+	dc.listings = make([][]string, 0, times)
+
+	for range times {
+		names := make([]string, 0, len(GetAllVariants()))
+		for _, variant := range GetAllVariants() {
+			names = append(names, variant.Name())
+		}
+
+		dc.listings = append(dc.listings, names)
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) everyListingShouldBe(want string) error {
+	if len(dc.listings) == 0 {
+		return errors.New("no variant listings were collected")
+	}
+
+	for i, listing := range dc.listings {
+		got := strings.Join(listing, ", ")
+		if got != want {
+			return fmt.Errorf("listing %d is %q, want %q", i, got, want)
+		}
+	}
+
+	return nil
+}
+
+// dispatchConfig fills a variant's own default configuration with the
+// scenario's problem. A binary configuration keeps its unit bounds, exactly as
+// ComparisonRunner.applyProblem does.
+func (dc *dispatchContext) dispatchConfig(config *Config, iterations int) *Config {
+	config.ObjectiveFunc = dc.fc.objective
+	config.ProblemSize = dc.fc.problemSize
+	config.MaxIterations = iterations
+	config.NPop = 30
+	config.Rand = rand.New(rand.NewSource(20240823))
+
+	if !config.UseBinary {
+		config.LowerBound = dc.fc.lowerBound
+		config.UpperBound = dc.fc.upperBound
+	}
+
+	return config
+}
+
+func (dc *dispatchContext) iRunTheVariantForIterations(iterations int) error {
+	if dc.variant == nil {
+		return errNoVariant
+	}
+
+	config := dc.dispatchConfig(dc.variant.GetConfig(), iterations)
+	dc.fc.result, dc.err = dc.variant.Run(context.Background(), config)
+
+	return nil
+}
+
+// iRunTheVariantOnABinaryConfiguration is the pitfall the dispatch layer exists
+// to catch: a binary configuration handed to a continuous variant.
+func (dc *dispatchContext) iRunTheVariantOnABinaryConfiguration(iterations int) error {
+	if dc.variant == nil {
+		return errNoVariant
+	}
+
+	config := dc.dispatchConfig(NewBinaryConfig(), iterations)
+	dc.fc.result, dc.err = dc.variant.Run(context.Background(), config)
+
+	return nil
+}
+
+func (dc *dispatchContext) theVariantRunShouldSucceed() error {
+	if dc.err != nil {
+		return fmt.Errorf("the variant run failed: %w", dc.err)
+	}
+
+	if dc.fc.result == nil {
+		return errNoResult
+	}
+
+	return nil
+}
+
+// requireVariantRefusal checks a refusal rather than a mere error: the run must
+// report the sentinel and must not also hand back a result.
+func (dc *dispatchContext) requireVariantRefusal(want error) error {
+	if dc.err == nil {
+		return fmt.Errorf("the variant run succeeded, want %w", want)
+	}
+
+	if !errors.Is(dc.err, want) {
+		return fmt.Errorf("the variant run failed with %w, want %w", dc.err, want)
+	}
+
+	if dc.fc.result != nil {
+		return errors.New("the variant returned a result alongside its refusal")
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) theRunShouldBeRefusedAsBinaryConfig() error {
+	return dc.requireVariantRefusal(ErrBinaryConfigOnContinuousVariant)
+}
+
+func (dc *dispatchContext) theRunShouldBeRefusedAsMultiObjective() error {
+	return dc.requireVariantRefusal(ErrMultiObjectiveVariant)
+}
+
+// runningItThroughRunMultiObjective closes the loop on the refusal above: the
+// path MODAVariant.Run points the caller at has to actually work.
+func (dc *dispatchContext) runningItThroughRunMultiObjective(iterations int) error {
+	moda, ok := dc.variant.(*MODAVariant)
+	if !ok {
+		return fmt.Errorf("variant %v is not MODA", dc.variant)
+	}
+
+	config := moda.GetMultiObjectiveConfig()
+	config.ObjectiveFunc = dc.fc.multiObjective
+	config.Swarm.ProblemSize = dc.fc.problemSize
+	config.Swarm.LowerBound = dc.fc.lowerBound
+	config.Swarm.UpperBound = dc.fc.upperBound
+	config.Swarm.MaxIterations = iterations
+	config.Swarm.NPop = 30
+	config.Swarm.Rand = rand.New(rand.NewSource(20240823))
+
+	result, err := moda.RunMultiObjective(context.Background(), config)
+	if err != nil {
+		return fmt.Errorf("RunMultiObjective failed: %w", err)
+	}
+
+	dc.fc.moResult = result
+
+	return nil
+}
+
+// --- builder ----------------------------------------------------------------
+
+func (dc *dispatchContext) iBuildTheVariantWithPopulation(name string, iterations, population int) error {
+	dc.builder = NewBuilder(name).
+		ForProblem(dc.fc.objective, dc.fc.problemSize, dc.fc.lowerBound, dc.fc.upperBound).
+		WithIterations(iterations).
+		WithPopulation(population).
+		WithConfig(func(config *Config) {
+			config.Rand = rand.New(rand.NewSource(20240823))
+		})
+
+	dc.builtConfig, dc.err = dc.builder.Build()
+
+	return nil
+}
+
+func (dc *dispatchContext) iBuildTheVariantWithBounds(name string, iterations int, lower, upper float64) error {
+	dc.builder = NewBuilder(name).
+		ForProblem(dc.fc.objective, dc.fc.problemSize, lower, upper).
+		WithIterations(iterations)
+
+	dc.builtConfig, dc.err = dc.builder.Build()
+
+	return nil
+}
+
+func (dc *dispatchContext) theBuiltConfigurationShouldTarget(iterations, population int) error {
+	if dc.err != nil {
+		return fmt.Errorf("Build failed: %w", dc.err)
+	}
+
+	if dc.builtConfig == nil {
+		return errors.New("no configuration was built")
+	}
+
+	if dc.builtConfig.MaxIterations != iterations {
+		return fmt.Errorf("built configuration targets %d iterations, want %d",
+			dc.builtConfig.MaxIterations, iterations)
+	}
+
+	if dc.builtConfig.NPop != population {
+		return fmt.Errorf("built configuration has %d dragonflies, want %d",
+			dc.builtConfig.NPop, population)
+	}
+
+	return nil
+}
+
+// theBuiltConfigurationBoundsShouldBe is what pins ForProblem's rule that a
+// binary configuration keeps the unit interval it was given by NewBinaryConfig.
+func (dc *dispatchContext) theBuiltConfigurationBoundsShouldBe(lower, upper float64) error {
+	if dc.err != nil {
+		return fmt.Errorf("Build failed: %w", dc.err)
+	}
+
+	if dc.builtConfig == nil {
+		return errors.New("no configuration was built")
+	}
+
+	if dc.builtConfig.LowerBound != lower || dc.builtConfig.UpperBound != upper {
+		return fmt.Errorf("built configuration bounds are [%g, %g], want [%g, %g]",
+			dc.builtConfig.LowerBound, dc.builtConfig.UpperBound, lower, upper)
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) buildingShouldFailWith(fragment string) error {
+	if dc.err == nil {
+		return fmt.Errorf("Build accepted a chain that should fail on %q", fragment)
+	}
+
+	if dc.builtConfig != nil {
+		return errors.New("Build returned a configuration alongside an error")
+	}
+
+	return requireErrorMentions(dc.err, fragment)
+}
+
+func (dc *dispatchContext) optimizingThroughTheBuilderShouldSucceed() error {
+	if dc.builder == nil {
+		return errors.New("no builder was created")
+	}
+
+	result, err := dc.builder.Optimize()
+	if err != nil {
+		return fmt.Errorf("the builder's Optimize failed: %w", err)
+	}
+
+	dc.fc.result = result
+
+	return nil
+}
+
+// --- selector ---------------------------------------------------------------
+
+func (dc *dispatchContext) aProblemThatIs(shape string) error {
+	switch shape {
+	case "continuous":
+		dc.characteristics = &ProblemCharacteristics{
+			Dimensionality: 10,
+			Modality:       Multimodal,
+			Landscape:      Rugged,
+		}
+	case "discrete":
+		dc.characteristics = &ProblemCharacteristics{
+			Dimensionality: 20,
+			Modality:       Multimodal,
+			Landscape:      Rugged,
+			Discrete:       true,
+		}
+	case "multi-objective":
+		dc.characteristics = &ProblemCharacteristics{
+			Dimensionality: 10,
+			Modality:       Multimodal,
+			Landscape:      Smooth,
+			MultiObjective: true,
+		}
+	default:
+		return fmt.Errorf("unknown problem shape %q", shape)
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) iAskTheSelectorForItsBestRecommendation() error {
+	if dc.characteristics == nil {
+		return errors.New("no problem characteristics were set up")
+	}
+
+	dc.recommendation = NewAlgorithmSelector().RecommendBest(*dc.characteristics)
+
+	return nil
+}
+
+func (dc *dispatchContext) iClassifyTheProblemWithSeed(seed int64) error {
+	characteristics := ClassifyProblem(
+		dc.fc.objective,
+		dc.fc.problemSize,
+		dc.fc.lowerBound,
+		dc.fc.upperBound,
+		rand.New(rand.NewSource(seed)),
+	)
+	dc.characteristics = &characteristics
+
+	return nil
+}
+
+func (dc *dispatchContext) theClassifiedDimensionalityShouldBe(want int) error {
+	if dc.characteristics == nil {
+		return errors.New("no problem characteristics were set up")
+	}
+
+	if dc.characteristics.Dimensionality != want {
+		return fmt.Errorf("classified dimensionality is %d, want %d",
+			dc.characteristics.Dimensionality, want)
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) theSelectorShouldRecommendForTheClassification(want string) error {
+	err := dc.iAskTheSelectorForItsBestRecommendation()
+	if err != nil {
+		return err
+	}
+
+	return dc.theRecommendedVariantShouldBe(want)
+}
+
+func (dc *dispatchContext) iAskForARecommendationForTheBenchmark(benchmarkName string) error {
+	dc.recommendation = RecommendForBenchmark(benchmarkName)
+
+	return nil
+}
+
+func (dc *dispatchContext) theRecommendedVariantShouldBe(want string) error {
+	if dc.recommendation.Variant == nil {
+		return errors.New("the recommendation carries no variant")
+	}
+
+	if dc.recommendation.Variant.Name() != want {
+		return fmt.Errorf("recommended variant is %q, want %q",
+			dc.recommendation.Variant.Name(), want)
+	}
+
+	return nil
+}
+
+// theRecommendationReasonShouldNotBeEmpty pins the promise on
+// AlgorithmRecommendation.Reason: a heuristic the caller cannot interrogate is
+// worth no more than a coin flip.
+func (dc *dispatchContext) theRecommendationReasonShouldNotBeEmpty() error {
+	if strings.TrimSpace(dc.recommendation.Reason) == "" {
+		return errors.New("the recommendation reason is empty")
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) theRecommendationReasonShouldMention(fragment string) error {
+	if !strings.Contains(dc.recommendation.Reason, fragment) {
+		return fmt.Errorf("reason %q does not mention %q", dc.recommendation.Reason, fragment)
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) theRecommendationScoreShouldBeInUnitInterval() error {
+	if dc.recommendation.Score < 0 || dc.recommendation.Score > 1 {
+		return fmt.Errorf("recommendation score is %g, want a value in [0, 1]",
+			dc.recommendation.Score)
+	}
+
+	return nil
+}
+
+// --- comparison -------------------------------------------------------------
+
+func (dc *dispatchContext) iCompareTheVariants(
+	first, second string,
+	runs, iterations int,
+	seed int64,
+) error {
+	runner := NewComparisonRunner().
+		WithVariantNames(first, second).
+		WithRuns(runs).
+		WithIterations(iterations).
+		WithSeed(seed)
+
+	dc.comparison, dc.err = runner.CompareContext(
+		context.Background(), "Sphere", dc.fc.objective, dc.fc.problemSize,
+		dc.fc.lowerBound, dc.fc.upperBound)
+
+	return nil
+}
+
+func (dc *dispatchContext) theComparisonShouldSucceed() error {
+	if dc.err != nil {
+		return fmt.Errorf("the comparison failed: %w", dc.err)
+	}
+
+	if dc.comparison == nil {
+		return errors.New("no comparison result available")
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) theComparisonShouldBeRefusedAsMultiObjective() error {
+	if dc.err == nil {
+		return fmt.Errorf("the comparison accepted a multi-objective variant, want %w",
+			ErrMultiObjectiveVariant)
+	}
+
+	if !errors.Is(dc.err, ErrMultiObjectiveVariant) {
+		return fmt.Errorf("the comparison failed with %w, want %w",
+			dc.err, ErrMultiObjectiveVariant)
+	}
+
+	return nil
+}
+
+func (dc *dispatchContext) theComparisonShouldReportStatisticsFor(count int) error {
+	if dc.comparison == nil {
+		return errors.New("no comparison result available")
+	}
+
+	if len(dc.comparison.Statistics) != count {
+		return fmt.Errorf("the comparison reports statistics for %d variants, want %d",
+			len(dc.comparison.Statistics), count)
+	}
+
+	return nil
+}
+
+// runKShouldHaveUsedTheBaseSeedPlusK is the pairing the Wilcoxon and Friedman
+// tests assume: run k of every variant faces the same random stream, so the
+// differences that remain are the algorithms'.
+func (dc *dispatchContext) runKShouldHaveUsedTheBaseSeedPlusK() error {
+	if dc.comparison == nil {
+		return errors.New("no comparison result available")
+	}
+
+	for variantIndex, runs := range dc.comparison.RunResults {
+		for run, outcome := range runs {
+			want := dc.comparison.BaseSeed + int64(run)
+			if outcome.Seed != want {
+				return fmt.Errorf("variant %d run %d used seed %d, want %d",
+					variantIndex, run, outcome.Seed, want)
+			}
+		}
+	}
+
+	return nil
 }
