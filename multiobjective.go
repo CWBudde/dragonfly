@@ -55,8 +55,15 @@ type ParetoSolution struct {
 	// objective, each in [0, NGrid-1].
 	GridIndex        []int
 	CrowdingDistance float64
-	Rank             int
-	DominationCount  int
+	// ConstraintViolation is the aggregate constraint violation of Position,
+	// as EvaluateConstraints reports it: zero for a feasible solution, positive
+	// for one outside the feasible region. It participates in domination
+	// through constrainedDominates, so an unconstrained run -- where every
+	// solution carries zero -- behaves exactly as it did before constraints
+	// existed.
+	ConstraintViolation float64
+	Rank                int
+	DominationCount     int
 	// GridKey flattens GridIndex into a single integer in base NGrid, so that
 	// occupancy can be counted with one map lookup rather than a slice compare.
 	GridKey int
@@ -71,10 +78,11 @@ func (solution *ParetoSolution) clone() *ParetoSolution {
 	}
 
 	return &ParetoSolution{
-		Position:        copyVec(solution.Position),
-		ObjectiveValues: copyVec(solution.ObjectiveValues),
-		GridIndex:       append([]int(nil), solution.GridIndex...),
-		GridKey:         solution.GridKey,
+		Position:            copyVec(solution.Position),
+		ObjectiveValues:     copyVec(solution.ObjectiveValues),
+		GridIndex:           append([]int(nil), solution.GridIndex...),
+		ConstraintViolation: solution.ConstraintViolation,
+		GridKey:             solution.GridKey,
 	}
 }
 
@@ -102,6 +110,52 @@ func dominates(a, b []float64) bool {
 	}
 
 	return strictlyBetter
+}
+
+// constrainedDominates reports whether solution a dominates solution b once
+// constraint violations are taken into account. Every archive decision that
+// asks "does one solution dominate another" goes through this function; plain
+// dominates is the feasible-feasible case it delegates to.
+//
+// The rule is Deb's, lifted from the total order in constraints.go to the
+// partial order a Pareto archive needs:
+//
+//  1. a feasible solution dominates an infeasible one;
+//  2. between two infeasible solutions, the smaller aggregate violation
+//     dominates, and equal violations are incomparable;
+//  3. between two feasible solutions, ordinary Pareto dominance decides.
+//
+// BetterConstrainedCandidate is deliberately not reused. It is a total order --
+// it always names a winner -- and feeding a total order to an archive that
+// keeps everything mutually non-dominated would collapse the front to a single
+// point.
+func constrainedDominates(a, b *ParetoSolution) bool {
+	if a == nil || b == nil {
+		return false
+	}
+
+	feasibleA := IsFeasible(a.ConstraintViolation)
+
+	feasibleB := IsFeasible(b.ConstraintViolation)
+	if feasibleA != feasibleB {
+		return feasibleA
+	}
+
+	if !feasibleA {
+		return a.ConstraintViolation < b.ConstraintViolation
+	}
+
+	return dominates(a.ObjectiveValues, b.ObjectiveValues)
+}
+
+// duplicateSolutions reports whether two solutions occupy the same point of the
+// archive's ordering: the same objective vector and the same constraint
+// violation. Only such a pair is a genuine duplicate -- two solutions that
+// score alike but differ in feasibility are ordered by rule 1 above, not
+// deduplicated.
+func duplicateSolutions(a, b *ParetoSolution) bool {
+	return a.ConstraintViolation == b.ConstraintViolation &&
+		equalObjectives(a.ObjectiveValues, b.ObjectiveValues)
 }
 
 // equalObjectives reports whether two objective vectors are identical. An
@@ -247,8 +301,7 @@ func (pa *ParetoArchive) Add(solution *ParetoSolution, rng *rand.Rand) bool {
 	}
 
 	for _, existing := range pa.Solutions {
-		if equalObjectives(existing.ObjectiveValues, solution.ObjectiveValues) ||
-			dominates(existing.ObjectiveValues, solution.ObjectiveValues) {
+		if duplicateSolutions(existing, solution) || constrainedDominates(existing, solution) {
 			return false
 		}
 	}
@@ -256,7 +309,7 @@ func (pa *ParetoArchive) Add(solution *ParetoSolution, rng *rand.Rand) bool {
 	kept := make([]*ParetoSolution, 0, len(pa.Solutions)+1)
 
 	for _, existing := range pa.Solutions {
-		if !dominates(solution.ObjectiveValues, existing.ObjectiveValues) {
+		if !constrainedDominates(solution, existing) {
 			kept = append(kept, existing)
 		}
 	}
@@ -298,7 +351,7 @@ func (pa *ParetoArchive) IsNonDominated() bool {
 
 	for i, first := range pa.Solutions {
 		for j, second := range pa.Solutions {
-			if i != j && dominates(first.ObjectiveValues, second.ObjectiveValues) {
+			if i != j && constrainedDominates(first, second) {
 				return false
 			}
 		}
@@ -581,9 +634,11 @@ func NewMultiObjectiveConfig() *MultiObjectiveConfig {
 // There is no single best position to report, so Archive is the result: the
 // approximation of the Pareto front the run converged on.
 type MultiObjectiveResult struct {
-	// Only the iteration cap ends a MODA run today, so this is always
-	// TerminationMaxIterations; it is reported anyway so that a caller can read
-	// a MODA result the same way it reads a single-objective one.
+	// TerminationReason is TerminationMaxIterations for a run that used its
+	// whole iteration budget, and TerminationStagnation for one that
+	// Swarm.Convergence stopped early. A canceled run has no result at all --
+	// OptimizeMultiObjective returns ctx.Err() instead -- so there is no
+	// cancellation reason to report here.
 	TerminationReason TerminationReason
 
 	Archive *ParetoArchive
@@ -627,6 +682,16 @@ func validateMultiObjectiveConfig(config *MultiObjectiveConfig) error {
 		return fmt.Errorf("invalid swarm config: %w", swarmErr)
 	}
 
+	constraintErr := validateMultiObjectiveConstraints(config.Swarm.Constraints)
+	if constraintErr != nil {
+		return constraintErr
+	}
+
+	convergenceErr := validateMultiObjectiveConvergence(config.Swarm.Convergence)
+	if convergenceErr != nil {
+		return convergenceErr
+	}
+
 	if config.ArchiveSize <= 0 {
 		return fmt.Errorf("archive_size must be positive, got %d", config.ArchiveSize)
 	}
@@ -648,11 +713,114 @@ func validateMultiObjectiveConfig(config *MultiObjectiveConfig) error {
 	return nil
 }
 
+// validateMultiObjectiveConstraints rejects the one constraint policy that has
+// no defensible multi-objective reading.
+//
+// MODA handles constraints by constrained domination (see
+// constrainedDominates), which needs no penalty factor. Penalty handling folds
+// a violation into a scalar cost, and a multi-objective run has no scalar cost
+// to fold it into: applying the penalty to every objective component would
+// invent a trade-off the caller never described. It fails loudly rather than
+// being approximated.
+func validateMultiObjectiveConstraints(constraints *ConstraintConfig) error {
+	if constraints == nil || effectiveConstraintHandling(constraints) != ConstraintHandlingPenalty {
+		return nil
+	}
+
+	return errors.New(
+		"constraints.handling = penalty is not supported for a multi-objective run: " +
+			"there is no single cost to penalize; use the default feasibility rules")
+}
+
+// validateMultiObjectiveConvergence rejects the one early-stopping criterion
+// that has no multi-objective meaning.
+//
+// A target cost is a statement about a single incumbent, and a MODA run does
+// not have one: every archive member is optimal in the only sense a Pareto
+// front recognizes. Silently ignoring the field would let a caller believe a
+// budget was capped when it was not, so it is rejected instead. Stagnation and
+// MinIterations do carry over -- see moStagnationTracker.
+func validateMultiObjectiveConvergence(convergence *ConvergenceConfig) error {
+	if convergence == nil || convergence.TargetCost == nil {
+		return nil
+	}
+
+	return errors.New(
+		"convergence.target_cost has no meaning for a multi-objective run: " +
+			"a Pareto front has no single best cost; use stagnation_iterations instead")
+}
+
+// moStagnationTracker is MODA's early-stopping rule: the archive is the
+// incumbent, so an iteration counts as an improvement exactly when the archive
+// accepted at least one candidate.
+//
+// It deliberately does not reuse convergenceTracker. That type ranks a scalar
+// Best through a constraintEvaluator and measures improvement as a cost margin,
+// and neither quantity exists here. What it does reuse is the shape of
+// convergenceTracker.observe: the counter is maintained from the first
+// observation, but MinIterations gates whether it may stop the run, so a run
+// that stalls during the warm-up period stops as soon as the gate opens.
+//
+// Config.Convergence.MinImprovement is not consulted. Archive acceptance is a
+// yes-or-no answer with no margin to compare against.
+type moStagnationTracker struct {
+	config             *ConvergenceConfig
+	stagnantIterations int
+}
+
+// observe records one completed iteration and reports whether the run should
+// stop. iteration is the 1-based count of completed iterations, matching what
+// OptimizeContext feeds convergenceTracker.observe.
+func (tracker *moStagnationTracker) observe(iteration, accepted int) (TerminationReason, bool) {
+	if tracker == nil || tracker.config == nil {
+		return "", false
+	}
+
+	if accepted > 0 {
+		tracker.stagnantIterations = 0
+	} else {
+		tracker.stagnantIterations++
+	}
+
+	if iteration < max(tracker.config.MinIterations, 1) {
+		return "", false
+	}
+
+	if tracker.config.StagnationIterations > 0 &&
+		tracker.stagnantIterations >= tracker.config.StagnationIterations {
+		return TerminationStagnation, true
+	}
+
+	return "", false
+}
+
+// moEvaluation is one dragonfly's raw score for the batch in flight: the
+// objective vector exactly as the caller's function returned it, and the
+// aggregate constraint violation of the position that produced it.
+//
+// It is the unit of work the parallel path fans out. Nothing here is
+// sanitized, ranked or offered to the archive -- all of that happens on the
+// calling goroutine afterwards, in swarm index order.
+type moEvaluation struct {
+	values    []float64
+	violation float64
+}
+
 // moState is the mutable state of one MODA run.
 type moState struct {
-	archive   *ParetoArchive
-	swarm     []Dragonfly
+	archive *ParetoArchive
+	swarm   []Dragonfly
+	// scores is the scratch buffer one evaluation pass writes into, one element
+	// per dragonfly. Each worker writes exactly one element and reads none, so
+	// the buffer needs no synchronization beyond parallelFor's join.
+	scores    []moEvaluation
 	funcEvals int
+	// maxWorkers is the fan-out of the objective evaluation, or zero when the
+	// run scores the swarm on the calling goroutine. It is the only thing
+	// EnableParallel changes about a MODA run: every random draw happens in the
+	// prepare phase either way, so a seeded run is bit-identical with it set or
+	// not.
+	maxWorkers int
 }
 
 // OptimizeMultiObjective runs the multi-objective Dragonfly Algorithm, honoring
@@ -661,12 +829,28 @@ type moState struct {
 // It is a separate entry point rather than a mode of OptimizeContext: a
 // multi-objective run has no single best cost, so Result would have to report an
 // incumbent that does not exist. Cancellation is checked at the top of every
-// iteration and a canceled run returns a nil result and ctx.Err(), so a caller
-// cannot mistake an aborted run for a completed one.
+// iteration and again inside a parallel evaluation pass, and a canceled run
+// returns a nil result and ctx.Err(), so a caller cannot mistake an aborted run
+// for a completed one.
 //
 // The swarm mechanics are identical to the single-objective algorithm. Only the
 // food source and the enemy differ: both are drawn from the archive once per
 // iteration, the food from a sparse hypercube and the enemy from a crowded one.
+//
+// Swarm.Convergence may end the run early: an iteration in which the archive
+// accepted nothing counts as stagnant, and StagnationIterations consecutive
+// stagnant iterations stop the run with TerminationStagnation. A target cost is
+// rejected by validation rather than ignored.
+//
+// Swarm.Constraints, when set, is honored by constrained domination rather than
+// by a penalty: a feasible archive member dominates every infeasible one, and
+// two infeasible members are ordered by aggregate violation. Penalty handling is
+// rejected by validation; see validateMultiObjectiveConstraints.
+//
+// Swarm.EnableParallel fans the objective calls out across worker goroutines.
+// It changes nothing else: a seeded run is bit-identical with it set or not,
+// because no worker draws a random number and the archive is built in swarm
+// index order on the calling goroutine either way.
 func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (*MultiObjectiveResult, error) {
 	contextErr := requireContext(ctx)
 	if contextErr != nil {
@@ -689,12 +873,14 @@ func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (
 
 	rng := swarmConfig.Rand
 
-	state, initErr := initializeMultiObjectiveRun(config, rng)
+	state, initErr := initializeMultiObjectiveRun(ctx, config, rng)
 	if initErr != nil {
 		return nil, initErr
 	}
 
+	tracker := &moStagnationTracker{config: swarmConfig.Convergence}
 	curve := make([]int, 0, swarmConfig.MaxIterations)
+	reason := TerminationMaxIterations
 	completed := 0
 
 	for t := range swarmConfig.MaxIterations {
@@ -703,7 +889,7 @@ func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (
 			return nil, ctxErr
 		}
 
-		stepErr := state.advance(config, t, rng)
+		accepted, stepErr := state.advance(ctx, config, t, rng)
 		if stepErr != nil {
 			return nil, stepErr
 		}
@@ -711,15 +897,19 @@ func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (
 		completed = t + 1
 
 		curve = append(curve, state.archive.Len())
+
+		stopReason, stop := tracker.observe(completed, accepted)
+		if stop {
+			reason = stopReason
+
+			break
+		}
 	}
 
 	return &MultiObjectiveResult{
-		Archive:          state.archive,
-		ArchiveSizeCurve: curve,
-		// Only the iteration cap ends a MODA run: the early-stopping criteria in
-		// convergence.go are defined against a single best cost, which a
-		// multi-objective run does not have.
-		TerminationReason: TerminationMaxIterations,
+		Archive:           state.archive,
+		ArchiveSizeCurve:  curve,
+		TerminationReason: reason,
 		FuncEvalCount:     state.funcEvals,
 		IterationCount:    completed,
 		Seed:              seed,
@@ -732,7 +922,11 @@ func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (
 //
 // Positions and steps are drawn exactly as initializeRun draws them for a
 // single-objective run.
-func initializeMultiObjectiveRun(config *MultiObjectiveConfig, rng *rand.Rand) (*moState, error) {
+func initializeMultiObjectiveRun(
+	ctx context.Context,
+	config *MultiObjectiveConfig,
+	rng *rand.Rand,
+) (*moState, error) {
 	swarmConfig := config.Swarm
 	swarm := make([]Dragonfly, swarmConfig.NPop)
 
@@ -747,10 +941,15 @@ func initializeMultiObjectiveRun(config *MultiObjectiveConfig, rng *rand.Rand) (
 	state := &moState{
 		archive: NewParetoArchiveWithGrid(config.ArchiveSize, config.NGrid,
 			config.Beta, config.Gamma, config.Delta),
-		swarm: swarm,
+		swarm:  swarm,
+		scores: make([]moEvaluation, len(swarm)),
 	}
 
-	err := state.evaluateSwarm(config, rng)
+	if swarmConfig.EnableParallel {
+		state.maxWorkers = effectiveMaxWorkers(swarmConfig)
+	}
+
+	_, err := state.evaluateSwarm(ctx, config, rng)
 	if err != nil {
 		return nil, err
 	}
@@ -764,22 +963,45 @@ func initializeMultiObjectiveRun(config *MultiObjectiveConfig, rng *rand.Rand) (
 // misbehaving objective becomes +Inf rather than a point that dominates the
 // whole archive and can never be displaced.
 //
-// All calls happen on the calling goroutine.
-func (state *moState) evaluateSwarm(config *MultiObjectiveConfig, rng *rand.Rand) error {
+// Swarm.Constraints, when set, is evaluated here too, exactly once per
+// objective evaluation, and the aggregate violation is recorded on both the
+// dragonfly and the candidate. The archive then ranks by constrained
+// domination, so a feasible point displaces an infeasible one whatever their
+// objective vectors say.
+//
+// The count returned is how many candidates the archive accepted. It is the
+// multi-objective analog of an improvement in the incumbent, and it is what the
+// stagnation rule in moStagnationTracker counts iterations against.
+//
+// The objective calls themselves may fan out across goroutines when
+// Swarm.EnableParallel is set; see scorePositions. Everything else -- the
+// sanitizing, the ordering and the archive insert -- happens on the calling
+// goroutine, in swarm index order, so the archive a run builds does not depend
+// on how the workers interleaved.
+func (state *moState) evaluateSwarm(
+	ctx context.Context,
+	config *MultiObjectiveConfig,
+	rng *rand.Rand,
+) (int, error) {
+	scoreErr := state.scorePositions(ctx, config)
+	if scoreErr != nil {
+		return 0, scoreErr
+	}
+
+	state.funcEvals += len(state.swarm)
+
 	candidates := make([]*ParetoSolution, 0, len(state.swarm))
 
 	for i := range state.swarm {
 		fly := &state.swarm[i]
-
-		values := config.ObjectiveFunc(fly.Position)
-		state.funcEvals++
+		values := state.scores[i].values
 
 		if len(values) == 0 {
-			return errors.New("ObjectiveFunc must return at least one objective value")
+			return 0, errors.New("ObjectiveFunc must return at least one objective value")
 		}
 
 		if state.archive.Len() > 0 && len(values) != len(state.archive.Solutions[0].ObjectiveValues) {
-			return fmt.Errorf("ObjectiveFunc must return a fixed number of objectives, got %d then %d",
+			return 0, fmt.Errorf("ObjectiveFunc must return a fixed number of objectives, got %d then %d",
 				len(state.archive.Solutions[0].ObjectiveValues), len(values))
 		}
 
@@ -791,21 +1013,64 @@ func (state *moState) evaluateSwarm(config *MultiObjectiveConfig, rng *rand.Rand
 		// Cost carries the first objective purely so an inspecting caller sees
 		// something meaningful; nothing in a MODA run reads it.
 		fly.Cost = sanitized[0]
+		fly.ConstraintViolation = state.scores[i].violation
 
 		candidates = append(candidates, &ParetoSolution{
-			Position:        copyVec(fly.Position),
-			ObjectiveValues: sanitized,
+			Position:            copyVec(fly.Position),
+			ObjectiveValues:     sanitized,
+			ConstraintViolation: fly.ConstraintViolation,
 		})
 	}
 
-	state.archive.UpdateFromPopulation(candidates, rng)
+	return state.archive.UpdateFromPopulation(candidates, rng), nil
+}
 
-	return nil
+// scorePositions fills state.scores with one raw evaluation per dragonfly,
+// either on the calling goroutine or across maxWorkers of them.
+//
+// This is the only part of a MODA iteration that may run concurrently, and it
+// is safe to fan out for the reason the whole package is built around: it draws
+// no random numbers. The objective function is the caller's and is documented
+// to be safe for concurrent use when EnableParallel is set; EvaluateConstraints
+// reads the position and nothing else. Everything that consumes the RNG -- the
+// weight schedules, the food and enemy draws, the step update, the archive
+// insert -- has already happened, or happens afterwards, on the calling
+// goroutine.
+//
+// Nothing is written back to the swarm here, so a canceled pass leaves the
+// swarm carrying the previous iteration's scores rather than a mixture.
+func (state *moState) scorePositions(ctx context.Context, config *MultiObjectiveConfig) error {
+	if len(state.scores) < len(state.swarm) {
+		state.scores = make([]moEvaluation, len(state.swarm))
+	}
+
+	score := func(i int) {
+		state.scores[i] = moEvaluation{
+			values:    config.ObjectiveFunc(state.swarm[i].Position),
+			violation: EvaluateConstraints(state.swarm[i].Position, config.Swarm.Constraints).Violation,
+		}
+	}
+
+	if state.maxWorkers > 0 {
+		return parallelFor(ctx, len(state.swarm), state.maxWorkers, score)
+	}
+
+	for i := range state.swarm {
+		score(i)
+	}
+
+	return ctx.Err()
 }
 
 // advance runs one MODA iteration: draw the food source and the enemy from the
-// archive, move every dragonfly, then rescore and update the archive.
-func (state *moState) advance(config *MultiObjectiveConfig, iteration int, rng *rand.Rand) error {
+// archive, move every dragonfly, then rescore and update the archive. It
+// returns how many candidates the archive accepted this iteration.
+func (state *moState) advance(
+	ctx context.Context,
+	config *MultiObjectiveConfig,
+	iteration int,
+	rng *rand.Rand,
+) (int, error) {
 	swarmConfig := config.Swarm
 	weights := computeWeights(swarmConfig, iteration, swarmConfig.MaxIterations, rng)
 
@@ -830,7 +1095,7 @@ func (state *moState) advance(config *MultiObjectiveConfig, iteration int, rng *
 		prepareSwarmStep(view, i, swarmConfig, weights, rng)
 	}
 
-	return state.evaluateSwarm(config, rng)
+	return state.evaluateSwarm(ctx, config, rng)
 }
 
 // archivePosition returns a solution's position, or nil for a nil solution. A
@@ -849,7 +1114,10 @@ func archivePosition(solution *ParetoSolution) []float64 {
 type ParetoPoint struct {
 	Position   []float64 `json:"position"`
 	Objectives []float64 `json:"objectives"`
-	Index      int       `json:"index"`
+	// ConstraintViolation is the aggregate violation of Position, zero for a
+	// feasible solution and for every solution of an unconstrained run.
+	ConstraintViolation float64 `json:"constraint_violation"`
+	Index               int     `json:"index"`
 }
 
 // ParetoExport is the document ExportParetoJSON writes: the archived front plus
@@ -905,28 +1173,28 @@ func (result *MultiObjectiveResult) ExportParetoCSV(path string) error {
 	})
 }
 
-// paretoCSVHeader builds the column names from the first exported point.
+// paretoCSVHeader builds the column names from the first exported point. The
+// objective and variable counts follow the archive's contents, so an empty
+// archive yields the two fixed columns and nothing else.
 func paretoCSVHeader(points []ParetoPoint) []string {
 	header := []string{"index"}
 
-	if len(points) == 0 {
-		return header
+	if len(points) > 0 {
+		for m := range points[0].Objectives {
+			header = append(header, "objective_"+strconv.Itoa(m))
+		}
+
+		for j := range points[0].Position {
+			header = append(header, "x_"+strconv.Itoa(j))
+		}
 	}
 
-	for m := range points[0].Objectives {
-		header = append(header, "objective_"+strconv.Itoa(m))
-	}
-
-	for j := range points[0].Position {
-		header = append(header, "x_"+strconv.Itoa(j))
-	}
-
-	return header
+	return append(header, "constraint_violation")
 }
 
 // paretoCSVRow formats one exported point as CSV fields.
 func paretoCSVRow(point ParetoPoint) []string {
-	row := make([]string, 0, 1+len(point.Objectives)+len(point.Position))
+	row := make([]string, 0, 2+len(point.Objectives)+len(point.Position))
 	row = append(row, strconv.Itoa(point.Index))
 
 	for _, value := range point.Objectives {
@@ -937,7 +1205,7 @@ func paretoCSVRow(point ParetoPoint) []string {
 		row = append(row, strconv.FormatFloat(value, 'g', -1, 64))
 	}
 
-	return row
+	return append(row, strconv.FormatFloat(point.ConstraintViolation, 'g', -1, 64))
 }
 
 // ExportParetoJSON writes the archived front and the run summary to path as an
@@ -981,9 +1249,10 @@ func (result *MultiObjectiveResult) paretoPoints() ([]ParetoPoint, error) {
 
 	for i, solution := range result.Archive.Solutions {
 		points = append(points, ParetoPoint{
-			Position:   copyVec(solution.Position),
-			Objectives: copyVec(solution.ObjectiveValues),
-			Index:      i,
+			Position:            copyVec(solution.Position),
+			Objectives:          copyVec(solution.ObjectiveValues),
+			ConstraintViolation: solution.ConstraintViolation,
+			Index:               i,
 		})
 	}
 

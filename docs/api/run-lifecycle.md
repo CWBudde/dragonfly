@@ -10,7 +10,10 @@ result, err := dragonfly.OptimizeContext(ctx, config, options...)
 
 `Optimize` and `OptimizeBinary` are the same calls with `context.Background()` and no options.
 `OptimizeMultiObjective` takes a context but **no** run options: observers, logging and initial
-populations are not wired into the multi-objective path.
+populations are not wired into the multi-objective path. It does honour the shared `Config`
+block — `Constraints`, `Convergence` and `EnableParallel` all apply, with the two exceptions
+[MODA documents](../algorithms/moda.md): `Convergence.TargetCost` and
+`ConstraintHandlingPenalty` are rejected rather than ignored.
 
 ## Cancellation
 
@@ -142,8 +145,9 @@ config.Convergence = &dragonfly.ConvergenceConfig{
 the target-cost stop refuses to fire on an infeasible incumbent, and `MaxIterations` remains the
 hard upper bound whatever the convergence block says.
 
-MODA has no early stopping; `MultiObjectiveResult.TerminationReason` is always
-`maximum_iterations`.
+MODA reports `maximum_iterations` or `stagnation`. It has no target-cost stop: a Pareto front
+has no single best cost, so `Convergence.TargetCost` is rejected by validation rather than
+ignored.
 
 ## Seeding the initial population
 
@@ -226,9 +230,10 @@ _ = result.ExportParetoCSV("front.csv")
 _ = result.ExportParetoJSON("front.json")
 ```
 
-The CSV has an `index` column, one `objective_k` column per objective and one `x_j` column per
-decision variable, one row per archived solution in archive order. The column count follows the
-archive's contents, so an empty archive yields a header-only file with just the index column.
+The CSV has an `index` column, one `objective_k` column per objective, one `x_j` column per
+decision variable and a trailing `constraint_violation` column, one row per archived solution in
+archive order. The objective and variable counts follow the archive's contents, so an empty
+archive yields a header-only file with just the fixed columns.
 
 The JSON document adds the run summary: `termination_reason`, `seed`, `archive_size`,
 `func_eval_count`, `iteration_count` and `archive_size_curve`.

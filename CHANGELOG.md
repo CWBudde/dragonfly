@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- MODA now honours the shared `Config` block. `Config.Constraints` reaches the archive
+  through `constrainedDominates`, which lifts Deb's feasibility rules from the total order
+  in `constraints.go` to the partial order a Pareto archive needs; `ParetoSolution` carries
+  the aggregate violation and the CSV and JSON exports gained a column for it. Early
+  stopping counts an iteration as an improvement when the archive accepted a candidate, so
+  `Convergence.StagnationIterations` and `MinIterations` now shorten a MODA run and
+  `MultiObjectiveResult.TerminationReason` can report `stagnation`. `EnableParallel` fans
+  the objective calls out through `parallelFor`; every random draw stays on the calling
+  goroutine, so a seeded run is bit-identical with parallelism on or off.
+
 ### Fixed
 
 - `Levy` no longer panics on an empty position vector, and `Ackley` and `HappyCat` no
@@ -17,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `validateMultiObjectiveConfig` rejects `Convergence.TargetCost` and
+  `ConstraintHandlingPenalty` on a MODA config. Neither has a multi-objective reading -- a
+  scalar target says nothing about a front, and penalizing every objective component is not
+  a defensible default -- and both were previously accepted and then silently ignored.
 - `Config.EnemyCutoffFraction` is documented as inert at its default. The enemy weight
   follows `mc`, which already reaches zero at half the run, so the `0.75` cutoff only ever
   replaces a zero with a zero; only a fraction below `0.5` changes anything, and nothing at

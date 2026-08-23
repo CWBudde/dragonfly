@@ -264,8 +264,13 @@ Three details worth knowing:
   otherwise undercut any target simply by ignoring the constraints.
 - The constraint functions carry `json:"-"`; a JSON round-trip preserves the policy only.
 
-The multi-objective path does not go through the constraint evaluator at all. Fold constraints
-into your objective vector for MODA.
+The multi-objective path honours `Constraints` too, but not through the constraint evaluator:
+that evaluator is a total order, and a Pareto archive needs a partial one. MODA lifts Deb's
+rules to the domination level instead — a feasible solution dominates an infeasible one, two
+infeasible ones compare by aggregate violation, two feasible ones by ordinary Pareto dominance —
+and records the aggregate in `ParetoSolution.ConstraintViolation`. `ConstraintHandlingPenalty`
+is rejected there: with no single cost to penalise, applying the penalty to every objective
+component would invent a trade-off you never described.
 
 ## Convergence detection
 
@@ -295,7 +300,10 @@ improvement follows the active constraint policy: the penalized score under pena
 the raw cost between two feasible candidates, the aggregate violation between two infeasible
 ones — and crossing into feasibility always counts, whatever the margin.
 
-MODA has no early stopping; its criteria are all defined against a single best cost.
+MODA honours `StagnationIterations` and `MinIterations`, with the archive standing in for the
+incumbent: an iteration counts as an improvement when the archive accepted at least one
+candidate. `TargetCost` is rejected — a scalar target has no meaning against a Pareto front —
+and `MinImprovement` is not consulted, because acceptance has no margin to measure.
 
 ## Parallel evaluation
 
@@ -335,7 +343,9 @@ The neighbourhood scan, not the objective, is what dominates large-swarm runs, a
 parallelized. `BenchmarkNeighborScan` exists to establish whether it is worth the complexity;
 at `NPop` 500 with a late-run radius it costs 20.2 ms per scan.
 
-MODA does not honour `EnableParallel` at all.
+MODA honours `EnableParallel` too, on the same terms: the objective calls fan out, the archive
+is built in swarm index order on the calling goroutine, and
+`TestOptimizeMultiObjectiveParallelMatchesSequential` enforces the bit-identical guarantee.
 
 ## Random number generation
 

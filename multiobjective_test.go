@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 	"testing"
 )
 
@@ -422,6 +423,16 @@ func TestOptimizeMultiObjectiveValidation(t *testing.T) {
 		{name: "zero_ngrid", mutate: func(c *MultiObjectiveConfig) { c.NGrid = 0 }},
 		{name: "negative_beta", mutate: func(c *MultiObjectiveConfig) { c.Beta = -1 }},
 		{name: "bad_bounds", mutate: func(c *MultiObjectiveConfig) { c.Swarm.LowerBound = 2 }},
+		{name: "penalty_handling", mutate: func(c *MultiObjectiveConfig) {
+			c.Swarm.Constraints = &ConstraintConfig{
+				Handling:     ConstraintHandlingPenalty,
+				Inequalities: []ConstraintFunction{func(x []float64) float64 { return x[0] - 0.5 }},
+			}
+		}},
+		{name: "target_cost", mutate: func(c *MultiObjectiveConfig) {
+			target := 0.0
+			c.Swarm.Convergence = &ConvergenceConfig{TargetCost: &target}
+		}},
 	}
 
 	for _, tt := range tests {
@@ -518,9 +529,9 @@ func TestOptimizeMultiObjectiveKeepsArchiveInvariants(t *testing.T) {
 		t.Error("the final archive is not mutually non-dominated")
 	}
 
-	if len(result.ArchiveSizeCurve) != config.Swarm.MaxIterations {
+	if len(result.ArchiveSizeCurve) != result.IterationCount {
 		t.Errorf("archive size curve has %d entries, want %d",
-			len(result.ArchiveSizeCurve), config.Swarm.MaxIterations)
+			len(result.ArchiveSizeCurve), result.IterationCount)
 	}
 
 	for i, size := range result.ArchiveSizeCurve {
@@ -701,9 +712,9 @@ func TestExportParetoRoundTrip(t *testing.T) {
 		t.Fatalf("CSV holds %d rows, want %d plus a header", len(records)-1, result.Archive.Len())
 	}
 
-	// index + two objectives + three decision variables.
-	if len(records[0]) != 6 {
-		t.Errorf("CSV header has %d columns, want 6: %v", len(records[0]), records[0])
+	// index + two objectives + three decision variables + constraint violation.
+	if len(records[0]) != 7 {
+		t.Errorf("CSV header has %d columns, want 7: %v", len(records[0]), records[0])
 	}
 
 	raw, err := os.ReadFile(jsonPath)
@@ -943,5 +954,311 @@ func TestArchivePositionHandlesAMissingSolution(t *testing.T) {
 		if got[i] != position[i] {
 			t.Errorf("archivePosition()[%d] = %v, want %v", i, got[i], position[i])
 		}
+	}
+}
+
+// TestOptimizeMultiObjectiveStopsOnStagnation checks that a run whose archive
+// stops accepting candidates ends before the iteration cap, and says so.
+//
+// The objective is constant, so the archive accepts exactly one solution -- the
+// first candidate of the first evaluation -- and every iteration after that is
+// stagnant by construction.
+func TestOptimizeMultiObjectiveStopsOnStagnation(t *testing.T) {
+	config := newMultiObjectiveTestConfig(func([]float64) []float64 { return []float64{1, 1} }, 3, 200, 7)
+	config.Swarm.Convergence = &ConvergenceConfig{StagnationIterations: 5, MinIterations: 2}
+
+	result, err := OptimizeMultiObjective(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	if result.TerminationReason != TerminationStagnation {
+		t.Errorf("termination reason is %q, want %q", result.TerminationReason, TerminationStagnation)
+	}
+
+	if result.IterationCount >= config.Swarm.MaxIterations {
+		t.Errorf("run completed %d iterations, expected it to stop before %d",
+			result.IterationCount, config.Swarm.MaxIterations)
+	}
+
+	if len(result.ArchiveSizeCurve) != result.IterationCount {
+		t.Errorf("archive size curve has %d entries, want %d",
+			len(result.ArchiveSizeCurve), result.IterationCount)
+	}
+}
+
+// TestOptimizeMultiObjectiveRunsFullBudgetWithoutConvergence checks that the
+// early-stopping machinery is inert when no Convergence block is configured: the
+// run uses its whole budget and still reports the iteration cap.
+func TestOptimizeMultiObjectiveRunsFullBudgetWithoutConvergence(t *testing.T) {
+	config := newMultiObjectiveTestConfig(func([]float64) []float64 { return []float64{1, 1} }, 3, 25, 7)
+
+	result, err := OptimizeMultiObjective(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	if result.TerminationReason != TerminationMaxIterations {
+		t.Errorf("termination reason is %q, want %q", result.TerminationReason, TerminationMaxIterations)
+	}
+
+	if result.IterationCount != config.Swarm.MaxIterations {
+		t.Errorf("run completed %d iterations, want %d", result.IterationCount, config.Swarm.MaxIterations)
+	}
+}
+
+// TestMOStagnationTrackerRespectsMinIterations checks the gate directly: the
+// counter runs from the first observation, but the run may not stop before
+// MinIterations completed iterations.
+func TestMOStagnationTrackerRespectsMinIterations(t *testing.T) {
+	tracker := &moStagnationTracker{
+		config: &ConvergenceConfig{StagnationIterations: 2, MinIterations: 5},
+	}
+
+	for iteration := 1; iteration <= 4; iteration++ {
+		if _, stop := tracker.observe(iteration, 0); stop {
+			t.Fatalf("tracker stopped at iteration %d, before MinIterations", iteration)
+		}
+	}
+
+	reason, stop := tracker.observe(5, 0)
+	if !stop || reason != TerminationStagnation {
+		t.Errorf("tracker returned (%q, %v) at the gate, want (%q, true)",
+			reason, stop, TerminationStagnation)
+	}
+}
+
+// TestMOStagnationTrackerResetsOnAcceptance checks that an accepted candidate
+// clears the counter, so a run that keeps improving never stops early.
+func TestMOStagnationTrackerResetsOnAcceptance(t *testing.T) {
+	tracker := &moStagnationTracker{config: &ConvergenceConfig{StagnationIterations: 2}}
+
+	for iteration := 1; iteration <= 10; iteration++ {
+		accepted := iteration % 2
+		if _, stop := tracker.observe(iteration, accepted); stop {
+			t.Fatalf("tracker stopped at iteration %d despite regular acceptances", iteration)
+		}
+	}
+}
+
+// TestMOStagnationTrackerIsInertWithoutConfig checks that a nil Convergence
+// block never stops a run.
+func TestMOStagnationTrackerIsInertWithoutConfig(t *testing.T) {
+	tracker := &moStagnationTracker{}
+
+	if _, stop := tracker.observe(100, 0); stop {
+		t.Error("a tracker with no config stopped the run")
+	}
+}
+
+// TestConstrainedDominatesFollowsDebRules checks the partial order directly: it
+// is the one place a feasibility mistake would silently reshape every archive.
+func TestConstrainedDominatesFollowsDebRules(t *testing.T) {
+	solution := func(violation float64, objectives ...float64) *ParetoSolution {
+		return &ParetoSolution{ObjectiveValues: objectives, ConstraintViolation: violation}
+	}
+
+	tests := []struct {
+		a        *ParetoSolution
+		b        *ParetoSolution
+		name     string
+		expected bool
+	}{
+		{name: "feasible_beats_infeasible", a: solution(0, 9, 9), b: solution(1, 1, 1), expected: true},
+		{name: "infeasible_loses_to_feasible", a: solution(1, 1, 1), b: solution(0, 9, 9), expected: false},
+		{name: "smaller_violation_wins", a: solution(1, 9, 9), b: solution(2, 1, 1), expected: true},
+		{name: "equal_violation_incomparable", a: solution(2, 1, 1), b: solution(2, 9, 9), expected: false},
+		{name: "feasible_pareto", a: solution(0, 1, 1), b: solution(0, 2, 2), expected: true},
+		{name: "feasible_non_dominating", a: solution(0, 1, 3), b: solution(0, 3, 1), expected: false},
+		{name: "nil_never_dominates", a: nil, b: solution(0, 1, 1), expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := constrainedDominates(tt.a, tt.b); got != tt.expected {
+				t.Errorf("constrainedDominates() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestParetoArchiveKeepsInvariantWithMixedFeasibility checks that the archive
+// still holds its non-domination invariant when it is fed a population that
+// mixes feasible and infeasible candidates, and that feasibility wins.
+func TestParetoArchiveKeepsInvariantWithMixedFeasibility(t *testing.T) {
+	archive := NewParetoArchive(20)
+	rng := rand.New(rand.NewSource(3))
+
+	population := []*ParetoSolution{
+		{Position: []float64{0}, ObjectiveValues: []float64{5, 5}, ConstraintViolation: 3},
+		{Position: []float64{1}, ObjectiveValues: []float64{4, 6}, ConstraintViolation: 1},
+		{Position: []float64{2}, ObjectiveValues: []float64{9, 9}, ConstraintViolation: 0},
+		{Position: []float64{3}, ObjectiveValues: []float64{8, 10}, ConstraintViolation: 0},
+		{Position: []float64{4}, ObjectiveValues: []float64{1, 1}, ConstraintViolation: 7},
+	}
+
+	archive.UpdateFromPopulation(population, rng)
+
+	if !archive.IsNonDominated() {
+		t.Fatal("the archive is not mutually non-dominated after a mixed insert")
+	}
+
+	for _, solution := range archive.Solutions {
+		if !IsFeasible(solution.ConstraintViolation) {
+			t.Errorf("archive kept an infeasible solution %v alongside feasible ones",
+				solution.ObjectiveValues)
+		}
+	}
+}
+
+// TestOptimizeMultiObjectiveHonoursConstraints checks that a constrained run
+// ends with a feasible-only archive.
+//
+// The inequality x0 >= 0.5 makes the unconstrained ZDT1 optimum -- the whole
+// x0 < 0.5 stretch of the front -- infeasible, so an archive that ignored the
+// constraint would be full of violating points.
+func TestOptimizeMultiObjectiveHonoursConstraints(t *testing.T) {
+	config := newMultiObjectiveTestConfig(ZDT1, 3, 60, 12)
+	config.Swarm.Constraints = &ConstraintConfig{
+		Inequalities: []ConstraintFunction{func(x []float64) float64 { return 0.5 - x[0] }},
+	}
+
+	result, err := OptimizeMultiObjective(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	if result.Archive.Len() == 0 {
+		t.Fatal("the constrained run produced an empty archive")
+	}
+
+	feasible := 0
+
+	for _, solution := range result.Archive.Solutions {
+		if IsFeasible(solution.ConstraintViolation) {
+			feasible++
+		}
+	}
+
+	if feasible == 0 {
+		t.Fatal("the run never found a feasible point; the test problem is too hard to be a check")
+	}
+
+	if feasible != result.Archive.Len() {
+		t.Errorf("archive holds %d feasible of %d solutions; once a feasible point exists "+
+			"every infeasible one is dominated", feasible, result.Archive.Len())
+	}
+
+	if !result.Archive.IsNonDominated() {
+		t.Error("the constrained archive is not mutually non-dominated")
+	}
+}
+
+// TestOptimizeMultiObjectiveRecordsViolationOnDragonflies checks that the
+// violation is recorded on the swarm as well as on the archive, so an
+// unconstrained run reports zero rather than leaving the field stale.
+func TestOptimizeMultiObjectiveUnconstrainedReportsZeroViolation(t *testing.T) {
+	result, err := OptimizeMultiObjective(context.Background(), newMultiObjectiveTestConfig(ZDT1, 3, 20, 5))
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	for i, solution := range result.Archive.Solutions {
+		if solution.ConstraintViolation != 0 {
+			t.Fatalf("unconstrained solution %d reports violation %v", i, solution.ConstraintViolation)
+		}
+	}
+}
+
+// TestOptimizeMultiObjectiveParallelMatchesSequential is the acceptance test for
+// the parallel path: a seeded run must be bit-identical with EnableParallel on
+// and off, element for element.
+//
+// It is the multi-objective counterpart of
+// TestParallelIsDeterministicForSeedAcrossSchedules. The guarantee holds for the
+// same reason: no worker draws a random number, so the only thing EnableParallel
+// changes is which goroutine calls the objective.
+func TestOptimizeMultiObjectiveParallelMatchesSequential(t *testing.T) {
+	const seed = 4242
+
+	sequential, err := OptimizeMultiObjective(context.Background(),
+		newMultiObjectiveTestConfig(ZDT1, 5, 40, seed))
+	if err != nil {
+		t.Fatalf("sequential run failed: %v", err)
+	}
+
+	parallelConfig := newMultiObjectiveTestConfig(ZDT1, 5, 40, seed)
+	parallelConfig.Swarm.EnableParallel = true
+	parallelConfig.Swarm.MaxWorkers = 4
+
+	parallel, err := OptimizeMultiObjective(context.Background(), parallelConfig)
+	if err != nil {
+		t.Fatalf("parallel run failed: %v", err)
+	}
+
+	if parallel.FuncEvalCount != sequential.FuncEvalCount {
+		t.Errorf("evaluation counts differ: sequential %d, parallel %d",
+			sequential.FuncEvalCount, parallel.FuncEvalCount)
+	}
+
+	if parallel.IterationCount != sequential.IterationCount {
+		t.Errorf("iteration counts differ: sequential %d, parallel %d",
+			sequential.IterationCount, parallel.IterationCount)
+	}
+
+	if parallel.Archive.Len() != sequential.Archive.Len() {
+		t.Fatalf("archive sizes differ: sequential %d, parallel %d",
+			sequential.Archive.Len(), parallel.Archive.Len())
+	}
+
+	for i := range sequential.Archive.Solutions {
+		want := sequential.Archive.Solutions[i]
+		got := parallel.Archive.Solutions[i]
+
+		for m := range want.ObjectiveValues {
+			if got.ObjectiveValues[m] != want.ObjectiveValues[m] {
+				t.Fatalf("solution %d objective %d differs: sequential %v, parallel %v",
+					i, m, want.ObjectiveValues[m], got.ObjectiveValues[m])
+			}
+		}
+
+		for j := range want.Position {
+			if got.Position[j] != want.Position[j] {
+				t.Fatalf("solution %d component %d differs: sequential %v, parallel %v",
+					i, j, want.Position[j], got.Position[j])
+			}
+		}
+	}
+}
+
+// TestOptimizeMultiObjectiveParallelHonoursCancellation checks that a context
+// canceled while the run is under way aborts it rather than being noticed only
+// at the next iteration boundary.
+func TestOptimizeMultiObjectiveParallelHonoursCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	config := newMultiObjectiveTestConfig(ZDT1, 3, 500, 8)
+	config.Swarm.EnableParallel = true
+	config.Swarm.MaxWorkers = 2
+
+	var calls atomic.Int64
+
+	front := ZDT1
+	config.ObjectiveFunc = func(x []float64) []float64 {
+		if calls.Add(1) == 100 {
+			cancel()
+		}
+
+		return front(x)
+	}
+
+	result, err := OptimizeMultiObjective(ctx, config)
+	if err == nil {
+		t.Fatal("a canceled parallel run returned no error")
+	}
+
+	if result != nil {
+		t.Error("a canceled parallel run returned a result")
 	}
 }

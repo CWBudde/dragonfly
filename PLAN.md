@@ -506,8 +506,19 @@ statistical question with a tolerance attached.
       `f2` is 1.39, well off the true front. The Phase 6 gate is met at the tests' `d = 5`
       (median distance to front 0.000). Worth understanding before claiming MODA parity
       with the paper's results.
-- [ ] MODA honours neither `EnableParallel` nor `Config.Constraints` nor early stopping.
-      All three are wired for DA and BDA only.
+- [x] MODA honours neither `EnableParallel` nor `Config.Constraints` nor early stopping.
+      All three are wired for DA and BDA only. **Resolved 2026-08-23: all three are wired,
+      with two deliberate rejections.** Constraints go through `constrainedDominates`,
+      Deb's rules lifted from the total order in `constraints.go` to the partial order an
+      archive needs -- `BetterConstrainedCandidate` always names a winner and would
+      collapse the front to a point. Early stopping counts an iteration as an improvement
+      when the archive accepted a candidate, which is the multi-objective reading of "the
+      incumbent improved" and needs no hypervolume machinery. `EnableParallel` fans out the
+      objective calls only, through `parallelFor`, and a seeded run stays bit-identical
+      with it set or not (`TestOptimizeMultiObjectiveParallelMatchesSequential`).
+      `Convergence.TargetCost` and `ConstraintHandlingPenalty` have no multi-objective
+      reading and are now rejected by `validateMultiObjectiveConfig` rather than silently
+      ignored.
 - [ ] `SchafferN1` costs 6-10x the ZDT benchmarks despite a trivial 1-D objective -- that
       is archive maintenance at capacity, not search. Relevant to any `ArchiveSize` tuning.
 

@@ -84,17 +84,32 @@ What each one does, so you can judge a change to it:
 A negative or non-finite exponent is raised to zero rather than used, because a negative
 exponent inverts the preference the roulette exists to express.
 
+### What MODA does with the shared configuration
+
+- **Early stopping, by archive stagnation.** `Swarm.Convergence.StagnationIterations` and
+  `MinIterations` carry over, with the archive standing in for the incumbent: an iteration
+  counts as an improvement when the archive accepted at least one candidate.
+  `MultiObjectiveResult.TerminationReason` is then `stagnation` rather than
+  `maximum_iterations`. `TargetCost` is **rejected** by validation — a scalar target has no
+  meaning against a Pareto front, and ignoring it silently would be worse than failing.
+  `MinImprovement` is not consulted: acceptance is a yes-or-no answer with no margin.
+- **Parallel evaluation.** `Swarm.EnableParallel` fans the objective calls out across
+  `Swarm.MaxWorkers` goroutines. Only the objective calls fan out; the archive is built in
+  swarm index order on the calling goroutine, so a seeded run is bit-identical with it on or
+  off.
+- **Constraint handling, by constrained domination.** `Swarm.Constraints` is honoured through
+  Deb's rules lifted to the domination level: a feasible solution dominates an infeasible one,
+  two infeasible ones compare by aggregate violation, two feasible ones by ordinary Pareto
+  dominance. `ParetoSolution.ConstraintViolation` records the aggregate.
+  `ConstraintHandlingPenalty` is **rejected** by validation — there is no single cost to
+  penalise, and penalising every objective component would invent a trade-off the caller never
+  described.
+
 ### What MODA does not have
 
-- **No early stopping.** `Result`'s convergence criteria are defined against a single best
-  cost, which a multi-objective run does not have. `MultiObjectiveResult.TerminationReason` is
-  therefore always `maximum_iterations`; it is reported anyway so a MODA result reads like a
-  single-objective one.
-- **No parallel evaluation.** `MultiObjectiveConfig.Swarm.EnableParallel` is not honoured;
-  `moState.evaluateSwarm` scores the swarm on the calling goroutine.
-- **No constraint handling.** The multi-objective path does not go through
-  `constraintEvaluator`. Fold constraints into your objective vector if you need them.
 - **No binary mode.** MODA is continuous.
+- **No run options.** Observers, logging and injected initial populations are not wired into
+  `OptimizeMultiObjective`.
 
 `ArchiveSizeCurve` is the multi-objective analogue of `ConvergenceCurve`: the archive size after
 each completed iteration. A curve that stops growing early is the usual sign of a stagnated run.
@@ -156,8 +171,9 @@ if err := result.ExportParetoJSON("front.json"); err != nil {
 ```
 
 The CSV carries one row per solution with an `index` column, one `objective_k` column per
-objective and one `x_j` column per decision variable. The column count follows the archive's
-contents, so an empty archive yields a header-only file rather than an error. The JSON document
+objective, one `x_j` column per decision variable and a trailing `constraint_violation` column,
+zero throughout for an unconstrained run. The objective and variable counts follow the
+archive's contents, so an empty archive yields a header-only file rather than an error. The JSON document
 adds the run summary: seed, evaluation count, iteration count, archive size and the
 `archive_size_curve`.
 
@@ -200,14 +216,14 @@ positive. The swarm block is validated by the same `validateConfig` a single-obj
 
 ### `MultiObjectiveResult`
 
-| Field               | Meaning                                                    |
-| ------------------- | ---------------------------------------------------------- |
-| `Archive`           | the approximation of the Pareto front — this is the result |
-| `ArchiveSizeCurve`  | archive size after each completed iteration                |
-| `TerminationReason` | always `maximum_iterations`                                |
-| `FuncEvalCount`     | calls to `ObjectiveFunc`                                   |
-| `IterationCount`    | completed iterations                                       |
-| `Seed`              | the recorded seed                                          |
+| Field               | Meaning                                                       |
+| ------------------- | ------------------------------------------------------------- |
+| `Archive`           | the approximation of the Pareto front — this is the result    |
+| `ArchiveSizeCurve`  | archive size after each completed iteration                   |
+| `TerminationReason` | `maximum_iterations`, or `stagnation` for a run stopped early |
+| `FuncEvalCount`     | calls to `ObjectiveFunc`                                      |
+| `IterationCount`    | completed iterations                                          |
+| `Seed`              | the recorded seed                                             |
 
 ## Benefits
 
@@ -273,8 +289,8 @@ pays for.
 - there is one objective — MODA on a single objective degenerates to an archive of one point,
   and `MODAVariant.ApplicableTo` scores it `0.1` accordingly
 - the variables are binary — there is no multi-objective binary variant here
-- you need constraints, early stopping or parallel evaluation — none is wired into the
-  multi-objective path
+- you need a scalar target cost or penalty-based constraint handling — neither has a
+  multi-objective reading, and both are rejected rather than approximated
 
 ## Parameter Tuning Guide
 
@@ -305,9 +321,9 @@ against.
 | Enemy               | roulette draw from a crowded hypercube | the worst position seen   | the worst position seen |
 | Result              | a Pareto archive                       | one incumbent + the enemy | one bit string          |
 | Entry point         | `OptimizeMultiObjective`               | `Optimize`                | `OptimizeBinary`        |
-| Early stopping      | not available                          | target cost, stagnation   | target cost, stagnation |
-| Parallel evaluation | not available                          | yes                       | yes                     |
-| Constraints         | not available                          | yes                       | yes                     |
+| Early stopping      | stagnation only                        | target cost, stagnation   | target cost, stagnation |
+| Parallel evaluation | yes                                    | yes                       | yes                     |
+| Constraints         | constrained domination                 | Deb rules or penalty      | Deb rules or penalty    |
 | Overhead            | about 1.2x                             | 1.0x (baseline)           | 1.0x                    |
 
 ## Related Documentation

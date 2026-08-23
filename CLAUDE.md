@@ -271,6 +271,15 @@ one before locking them in** (see Common Pitfalls #5).
 `MultiObjectiveResult` carries the final archive, with `ExportParetoCSV` / `ExportParetoJSON`
 mirroring `monitoring.go`.
 
+MODA honours the shared `Config` block, with two deliberate exceptions. Constraints go through
+`constrainedDominates`, Deb's rules lifted from the total order in `constraints.go` to the
+partial order an archive needs — `BetterConstrainedCandidate` must never be used here, it
+always names a winner and would collapse the front to one point. Early stopping counts an
+iteration as an improvement when the archive accepted a candidate. `EnableParallel` fans out
+the objective calls only. The exceptions are `Convergence.TargetCost` and
+`ConstraintHandlingPenalty`: neither has a multi-objective reading and both are rejected by
+`validateMultiObjectiveConfig` rather than silently ignored.
+
 ### Configuration System
 
 One **flat** `Config` struct — no nested option groups — with snake_case JSON tags
