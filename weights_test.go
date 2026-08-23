@@ -243,7 +243,7 @@ func TestRadiusGrowsMonotonically(t *testing.T) {
 
 	span := config.UpperBound - config.LowerBound
 
-	initial := neighbourhoodRadius(config, 0, config.MaxIterations)
+	initial := neighborhoodRadius(config, 0, config.MaxIterations)
 	if !weightsClose(initial, span/config.RadiusInitialDivisor) {
 		t.Errorf("radius at t=0 = %v, want (ub-lb)/divisor = %v",
 			initial, span/config.RadiusInitialDivisor)
@@ -252,7 +252,7 @@ func TestRadiusGrowsMonotonically(t *testing.T) {
 	previous := math.Inf(-1)
 
 	for iteration := 0; iteration <= config.MaxIterations; iteration++ {
-		radius := neighbourhoodRadius(config, iteration, config.MaxIterations)
+		radius := neighborhoodRadius(config, iteration, config.MaxIterations)
 		if radius <= previous {
 			t.Fatalf("iteration %d: radius %v did not grow beyond %v", iteration, radius, previous)
 		}
@@ -260,7 +260,7 @@ func TestRadiusGrowsMonotonically(t *testing.T) {
 		previous = radius
 	}
 
-	final := neighbourhoodRadius(config, config.MaxIterations, config.MaxIterations)
+	final := neighborhoodRadius(config, config.MaxIterations, config.MaxIterations)
 	want := span/config.RadiusInitialDivisor + span*config.RadiusGrowth
 
 	if !weightsClose(final, want) {
@@ -277,7 +277,7 @@ func TestRadiusMatchesScheduleField(t *testing.T) {
 	for _, iteration := range []int{0, 1, 40, 79, 80} {
 		weights := computeWeights(config, iteration, config.MaxIterations, rng)
 
-		want := neighbourhoodRadius(config, iteration, config.MaxIterations)
+		want := neighborhoodRadius(config, iteration, config.MaxIterations)
 		if weights.Radius != want {
 			t.Errorf("iteration %d: schedule radius = %v, want %v", iteration, weights.Radius, want)
 		}
@@ -293,7 +293,7 @@ func TestRadiusZeroGrowthIsConstant(t *testing.T) {
 	want := span / config.RadiusInitialDivisor
 
 	for iteration := 0; iteration <= config.MaxIterations; iteration++ {
-		if got := neighbourhoodRadius(config, iteration, config.MaxIterations); !weightsClose(got, want) {
+		if got := neighborhoodRadius(config, iteration, config.MaxIterations); !weightsClose(got, want) {
 			t.Fatalf("iteration %d: radius = %v, want the constant %v", iteration, got, want)
 		}
 	}
@@ -560,12 +560,12 @@ func TestScheduleProgressIsClamped(t *testing.T) {
 	}
 }
 
-func TestNeighbourhoodRadiusDegenerateDivisor(t *testing.T) {
+func TestNeighborhoodRadiusDegenerateDivisor(t *testing.T) {
 	config := weightTestConfig()
 	config.MaxIterations = 100
 	config.RadiusInitialDivisor = 0
 
-	radius := neighbourhoodRadius(config, 0, config.MaxIterations)
+	radius := neighborhoodRadius(config, 0, config.MaxIterations)
 	if math.IsInf(radius, 0) || math.IsNaN(radius) || radius <= 0 {
 		t.Errorf("radius with a zero divisor = %v, want a positive finite fallback", radius)
 	}

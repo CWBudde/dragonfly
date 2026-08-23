@@ -75,18 +75,18 @@ func computeWeights(config *Config, iteration, maxIterations int, rng *rand.Rand
 		Cohesion:   resolveWeight(config.CohesionWeight, 2*randCohesion*mc),
 		Food:       resolveWeight(config.FoodWeight, 2*randFood),
 		Enemy:      resolveWeight(config.EnemyWeight, scheduledEnemyWeight(config, mc, iteration, maxIterations)),
-		Radius:     neighbourhoodRadius(config, iteration, maxIterations),
+		Radius:     neighborhoodRadius(config, iteration, maxIterations),
 		MaxStep:    span * config.MaxStepRatio,
 	}
 }
 
-// neighbourhoodRadius returns the radius r for the given iteration.
+// neighborhoodRadius returns the radius r for the given iteration.
 //
 // It starts at a fixed fraction of the search box and grows linearly with the
 // run, so that neighborhoods are local while the swarm explores and eventually
 // cover the whole box, turning the swarm into a single flock around the food
 // source.
-func neighbourhoodRadius(config *Config, iteration, maxIterations int) float64 {
+func neighborhoodRadius(config *Config, iteration, maxIterations int) float64 {
 	span := config.UpperBound - config.LowerBound
 	progress := scheduleProgress(iteration, maxIterations)
 

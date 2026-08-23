@@ -61,11 +61,11 @@ func assertVec(t *testing.T, name string, got, want []float64) {
 	}
 }
 
-// TestSwarmPrimitivesHandComputed is the centrepiece of this file: the five
+// TestSwarmPrimitivesHandComputed is the centerpiece of this file: the five
 // primitives evaluated on the reference swarm above, against values worked out
 // by hand.
 //
-// Dragonfly 0, radius 10, so both other dragonflies are neighbours (N = 2):
+// Dragonfly 0, radius 10, so both other dragonflies are neighbors (N = 2):
 //
 //	S_0 = -((X_0-X_1) + (X_0-X_2)) = -((-1,-1) + (-4,-7)) = (5, 8)
 //	A_0 = (V_1 + V_2)/2 = (2, 6)/2                        = (1, 3)
@@ -89,44 +89,44 @@ func assertVec(t *testing.T, name string, got, want []float64) {
 func TestSwarmPrimitivesHandComputed(t *testing.T) {
 	tests := []struct {
 		name                string
-		wantNeighbours      []int
+		wantNeighbors       []int
 		wantS, wantA, wantC []float64
 		wantF, wantE        []float64
 		index               int
 		radius              float64
 	}{
 		{
-			name:           "dragonfly 0, radius 10, both neighbours",
-			index:          0,
-			radius:         10,
-			wantNeighbours: []int{1, 2},
-			wantS:          []float64{5, 8},
-			wantA:          []float64{1, 3},
-			wantC:          []float64{2.5, 4},
-			wantF:          []float64{3, -3},
-			wantE:          []float64{-1, 9},
+			name:          "dragonfly 0, radius 10, both neighbors",
+			index:         0,
+			radius:        10,
+			wantNeighbors: []int{1, 2},
+			wantS:         []float64{5, 8},
+			wantA:         []float64{1, 3},
+			wantC:         []float64{2.5, 4},
+			wantF:         []float64{3, -3},
+			wantE:         []float64{-1, 9},
 		},
 		{
-			name:           "dragonfly 1, radius 10, both neighbours",
-			index:          1,
-			radius:         10,
-			wantNeighbours: []int{0, 2},
-			wantS:          []float64{2, 5},
-			wantA:          []float64{1.75, 1.5},
-			wantC:          []float64{1, 2.5},
-			wantF:          []float64{2, -4},
-			wantE:          []float64{0, 10},
+			name:          "dragonfly 1, radius 10, both neighbors",
+			index:         1,
+			radius:        10,
+			wantNeighbors: []int{0, 2},
+			wantS:         []float64{2, 5},
+			wantA:         []float64{1.75, 1.5},
+			wantC:         []float64{1, 2.5},
+			wantF:         []float64{2, -4},
+			wantE:         []float64{0, 10},
 		},
 		{
-			name:           "dragonfly 0, radius 2, one neighbour",
-			index:          0,
-			radius:         2,
-			wantNeighbours: []int{1},
-			wantS:          []float64{1, 1},
-			wantA:          []float64{-1, 2},
-			wantC:          []float64{1, 1},
-			wantF:          []float64{3, -3},
-			wantE:          []float64{-1, 9},
+			name:          "dragonfly 0, radius 2, one neighbor",
+			index:         0,
+			radius:        2,
+			wantNeighbors: []int{1},
+			wantS:         []float64{1, 1},
+			wantA:         []float64{-1, 2},
+			wantC:         []float64{1, 1},
+			wantF:         []float64{3, -3},
+			wantE:         []float64{-1, 9},
 		},
 	}
 
@@ -134,14 +134,14 @@ func TestSwarmPrimitivesHandComputed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			swarm := referenceSwarm()
 
-			neighbours := findNeighbours(swarm, tt.index, tt.radius)
-			assertIndices(t, "findNeighbours", neighbours, tt.wantNeighbours)
+			neighbors := findNeighbors(swarm, tt.index, tt.radius)
+			assertIndices(t, "findNeighbors", neighbors, tt.wantNeighbors)
 
 			position := swarm[tt.index].Position
 
-			assertVec(t, "separationVector", separationVector(swarm, tt.index, neighbours), tt.wantS)
-			assertVec(t, "alignmentVector", alignmentVector(swarm, tt.index, neighbours), tt.wantA)
-			assertVec(t, "cohesionVector", cohesionVector(swarm, tt.index, neighbours), tt.wantC)
+			assertVec(t, "separationVector", separationVector(swarm, tt.index, neighbors), tt.wantS)
+			assertVec(t, "alignmentVector", alignmentVector(swarm, tt.index, neighbors), tt.wantA)
+			assertVec(t, "cohesionVector", cohesionVector(swarm, tt.index, neighbors), tt.wantC)
 			assertVec(t, "foodVector", foodVector(position, referenceFood()), tt.wantF)
 			assertVec(t, "enemyVector", enemyVector(position, referenceEnemy()), tt.wantE)
 		})
@@ -192,7 +192,7 @@ func TestWithinRadiusIsPerDimensionNotEuclidean(t *testing.T) {
 	}
 
 	if !withinRadius(origin, corner, radius) {
-		t.Errorf("withinRadius(%v, %v, %v) = false, want true: the neighbourhood test is "+
+		t.Errorf("withinRadius(%v, %v, %v) = false, want true: the neighborhood test is "+
 			"per-dimension (a box), not Euclidean (a ball)", origin, corner, radius)
 	}
 
@@ -214,7 +214,7 @@ func TestWithinRadiusBoundaryAndDegenerateCases(t *testing.T) {
 	}{
 		{name: "exactly on the radius counts as inside", a: []float64{0, 0}, b: []float64{3, -3}, radius: 3, want: true},
 		{name: "one component just outside", a: []float64{0, 0}, b: []float64{3, 3.0000001}, radius: 3, want: false},
-		{name: "identical positions are not neighbours", a: []float64{1, 2}, b: []float64{1, 2}, radius: 3, want: false},
+		{name: "identical positions are not neighbors", a: []float64{1, 2}, b: []float64{1, 2}, radius: 3, want: false},
 		{name: "differing in one component only", a: []float64{1, 2}, b: []float64{1, 2.5}, radius: 3, want: true},
 		{name: "zero radius rejects any difference", a: []float64{1, 2}, b: []float64{1, 2.5}, radius: 0, want: false},
 		{name: "negative radius rejects everything", a: []float64{1, 2}, b: []float64{1, 3}, radius: -1, want: false},
@@ -233,18 +233,18 @@ func TestWithinRadiusBoundaryAndDegenerateCases(t *testing.T) {
 	}
 }
 
-// TestDragonflyIsNeverItsOwnNeighbour covers both ways self-neighbouring could
+// TestDragonflyIsNeverItsOwnNeighbor covers both ways self-neighboring could
 // creep in: the dragonfly's own index, and a second dragonfly that happens to
 // sit on exactly the same position -- the all-zero distance vector the
 // reference implementation excludes.
-func TestDragonflyIsNeverItsOwnNeighbour(t *testing.T) {
+func TestDragonflyIsNeverItsOwnNeighbor(t *testing.T) {
 	swarm := referenceSwarm()
 
 	// A radius wide enough to cover the whole swarm several times over.
 	for index := range swarm {
-		for _, j := range findNeighbours(swarm, index, 1000) {
+		for _, j := range findNeighbors(swarm, index, 1000) {
 			if j == index {
-				t.Errorf("findNeighbours(swarm, %d, 1000) returned the dragonfly's own index", index)
+				t.Errorf("findNeighbors(swarm, %d, 1000) returned the dragonfly's own index", index)
 			}
 		}
 	}
@@ -254,18 +254,18 @@ func TestDragonflyIsNeverItsOwnNeighbour(t *testing.T) {
 		{Position: []float64{1, 2}, Step: []float64{1, 1}},
 	}
 
-	if got := findNeighbours(duplicates, 0, 5); len(got) != 0 {
-		t.Errorf("findNeighbours over co-located dragonflies = %v, want none: an all-zero "+
+	if got := findNeighbors(duplicates, 0, 5); len(got) != 0 {
+		t.Errorf("findNeighbors over co-located dragonflies = %v, want none: an all-zero "+
 			"distance vector is excluded", got)
 	}
 }
 
-func TestFindNeighboursOutOfRangeIndex(t *testing.T) {
+func TestFindNeighborsOutOfRangeIndex(t *testing.T) {
 	swarm := referenceSwarm()
 
 	for _, index := range []int{-1, len(swarm), len(swarm) + 7} {
-		if got := findNeighbours(swarm, index, 1000); len(got) != 0 {
-			t.Errorf("findNeighbours(swarm, %d, 1000) = %v, want none", index, got)
+		if got := findNeighbors(swarm, index, 1000); len(got) != 0 {
+			t.Errorf("findNeighbors(swarm, %d, 1000) = %v, want none", index, got)
 		}
 	}
 }
@@ -294,25 +294,25 @@ func TestFoodVectorSubtracts(t *testing.T) {
 	assertVec(t, "foodVector", foodVector([]float64{1, 2}, []float64{3, 4}), []float64{2, 2})
 }
 
-// TestNoNeighbourFallback covers the N == 0 case, where the formulas for
+// TestNoNeighborFallback covers the N == 0 case, where the formulas for
 // alignment and cohesion divide by zero. The reference implementation falls
 // back to the dragonfly's own step for alignment and its own position for
 // cohesion, which makes cohesion the zero vector.
-func TestNoNeighbourFallback(t *testing.T) {
+func TestNoNeighborFallback(t *testing.T) {
 	swarm := referenceSwarm()
 
 	// Radius 2 leaves dragonfly 2 alone: its distance to 0 is (4,7) and to 1 is
 	// (3,6), both with components past the radius.
-	neighbours := findNeighbours(swarm, 2, 2)
-	if len(neighbours) != 0 {
-		t.Fatalf("findNeighbours(swarm, 2, 2) = %v, want none", neighbours)
+	neighbors := findNeighbors(swarm, 2, 2)
+	if len(neighbors) != 0 {
+		t.Fatalf("findNeighbors(swarm, 2, 2) = %v, want none", neighbors)
 	}
 
-	assertVec(t, "separationVector with no neighbours", separationVector(swarm, 2, neighbours), []float64{0, 0})
+	assertVec(t, "separationVector with no neighbors", separationVector(swarm, 2, neighbors), []float64{0, 0})
 	// A_2 falls back to V_2 = (3, 4).
-	assertVec(t, "alignmentVector with no neighbours", alignmentVector(swarm, 2, neighbours), []float64{3, 4})
+	assertVec(t, "alignmentVector with no neighbors", alignmentVector(swarm, 2, neighbors), []float64{3, 4})
 	// C_2 = X_2 - X_2 = (0, 0).
-	assertVec(t, "cohesionVector with no neighbours", cohesionVector(swarm, 2, neighbours), []float64{0, 0})
+	assertVec(t, "cohesionVector with no neighbors", cohesionVector(swarm, 2, neighbors), []float64{0, 0})
 }
 
 // TestAlignmentFallbackDoesNotAliasTheStep guards the fallback against the
@@ -337,12 +337,12 @@ func TestPrimitivesDoNotMutateInputs(t *testing.T) {
 	before := referenceSwarm()
 	food := referenceFood()
 	enemy := referenceEnemy()
-	neighbours := []int{1, 2}
+	neighbors := []int{1, 2}
 
 	results := [][]float64{
-		separationVector(swarm, 0, neighbours),
-		alignmentVector(swarm, 0, neighbours),
-		cohesionVector(swarm, 0, neighbours),
+		separationVector(swarm, 0, neighbors),
+		alignmentVector(swarm, 0, neighbors),
+		cohesionVector(swarm, 0, neighbors),
 		alignmentVector(swarm, 0, nil),
 		cohesionVector(swarm, 0, nil),
 		foodVector(swarm[0].Position, food),
@@ -364,13 +364,13 @@ func TestPrimitivesDoNotMutateInputs(t *testing.T) {
 	assertVec(t, "food after the primitives", food, referenceFood())
 	assertVec(t, "enemy after the primitives", enemy, referenceEnemy())
 
-	// The neighbour list is an input too.
-	assertIndices(t, "neighbours after the primitives", neighbours, []int{1, 2})
+	// The neighbor list is an input too.
+	assertIndices(t, "neighbors after the primitives", neighbors, []int{1, 2})
 }
 
 // TestDimensionConsistency asserts that every returned vector has the problem's
 // dimension, for a swarm wider than the two dimensions used above and for both
-// the populated and the empty neighbourhood.
+// the populated and the empty neighborhood.
 func TestDimensionConsistency(t *testing.T) {
 	const dimension = 5
 
@@ -383,12 +383,12 @@ func TestDimensionConsistency(t *testing.T) {
 	enemy := []float64{-5, -5, -5, -5, -5}
 
 	for _, radius := range []float64{0.5, 3, 100} {
-		neighbours := findNeighbours(swarm, 0, radius)
+		neighbors := findNeighbors(swarm, 0, radius)
 
 		vectors := map[string][]float64{
-			"separationVector": separationVector(swarm, 0, neighbours),
-			"alignmentVector":  alignmentVector(swarm, 0, neighbours),
-			"cohesionVector":   cohesionVector(swarm, 0, neighbours),
+			"separationVector": separationVector(swarm, 0, neighbors),
+			"alignmentVector":  alignmentVector(swarm, 0, neighbors),
+			"cohesionVector":   cohesionVector(swarm, 0, neighbors),
 			"foodVector":       foodVector(swarm[0].Position, food),
 			"enemyVector":      enemyVector(swarm[0].Position, enemy),
 		}
@@ -403,15 +403,15 @@ func TestDimensionConsistency(t *testing.T) {
 
 // TestSeparationIsAntisymmetric checks a property the hand-computed table
 // cannot: for a two-dragonfly swarm in which each is the other's only
-// neighbour, the separation vectors must be exact negatives.
+// neighbor, the separation vectors must be exact negatives.
 func TestSeparationIsAntisymmetric(t *testing.T) {
 	swarm := []Dragonfly{
 		{Position: []float64{1, 2}, Step: []float64{0, 0}},
 		{Position: []float64{2, 4}, Step: []float64{0, 0}},
 	}
 
-	first := separationVector(swarm, 0, findNeighbours(swarm, 0, 5))
-	second := separationVector(swarm, 1, findNeighbours(swarm, 1, 5))
+	first := separationVector(swarm, 0, findNeighbors(swarm, 0, 5))
+	second := separationVector(swarm, 1, findNeighbors(swarm, 1, 5))
 
 	assertVec(t, "S_0", first, []float64{1, 2})
 	assertVec(t, "S_1", second, []float64{-1, -2})

@@ -1,7 +1,7 @@
 // Lévy flight helpers.
 //
 // Implements Lévy-stable steps via Mantegna's algorithm, used by the Dragonfly
-// Algorithm for the random walk a dragonfly performs when it has no neighbours:
+// Algorithm for the random walk a dragonfly performs when it has no neighbors:
 //
 //	X_i += Levy(d) ⊙ X_i
 //

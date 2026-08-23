@@ -1,17 +1,17 @@
 // The five swarming primitives of the Dragonfly Algorithm: separation,
 // alignment, cohesion, food attraction and enemy distraction, plus the
-// neighbourhood scan they are all computed over.
+// neighborhood scan they are all computed over.
 //
 // Two details here are worth stating twice, because both look like typos and
 // neither shows up as an obvious failure in an end-to-end convergence test:
 //
 //   - The enemy term is a SUM, E_i = X⁻ + X_i, not a difference. That is what
 //     the paper and the reference DA.m compute.
-//   - The neighbourhood test is PER-DIMENSION, not Euclidean. The reference
+//   - The neighborhood test is PER-DIMENSION, not Euclidean. The reference
 //     code builds a component-wise distance vector and requires every component
 //     to be within the radius. The per-dimension rule accepts a box, the
 //     Euclidean rule accepts the inscribed ball, so a Euclidean shortcut
-//     silently shrinks every neighbourhood and degrades convergence.
+//     silently shrinks every neighborhood and degrades convergence.
 
 package dragonfly
 
@@ -19,7 +19,7 @@ import "math"
 
 // withinRadius reports whether b lies inside the per-dimension radius r around
 // a, excluding the degenerate all-zero distance (a dragonfly is not its own
-// neighbour).
+// neighbor).
 //
 // The rule is the reference implementation's, component by component:
 //
@@ -28,9 +28,9 @@ import "math"
 // This is a box test, not a ball test. It is deliberately not Euclidean: see
 // the file comment.
 //
-// Vectors of different lengths, and empty vectors, are never neighbours -- an
+// Vectors of different lengths, and empty vectors, are never neighbors -- an
 // empty distance vector is vacuously all-zero, which is exactly the degenerate
-// case the second clause exists to reject. A NaN component is not a neighbour
+// case the second clause exists to reject. A NaN component is not a neighbor
 // either, since every comparison against NaN is false.
 func withinRadius(a, b []float64, radius float64) bool {
 	if len(a) != len(b) || len(a) == 0 {
@@ -56,23 +56,23 @@ func withinRadius(a, b []float64, radius float64) bool {
 	return !allZero
 }
 
-// findNeighbours returns the indices of the neighbours of swarm[index], in
+// findNeighbors returns the indices of the neighbors of swarm[index], in
 // ascending index order.
 //
 // The result is freshly allocated and may be empty; it is never the dragonfly's
 // own index. A dragonfly that happens to share a position with another is not
-// its neighbour either, because withinRadius rejects an all-zero distance --
-// that is the reference implementation's behaviour, not an oversight.
+// its neighbor either, because withinRadius rejects an all-zero distance --
+// that is the reference implementation's behavior, not an oversight.
 //
-// An out-of-range index yields no neighbours rather than a panic, so a caller
+// An out-of-range index yields no neighbors rather than a panic, so a caller
 // scanning a swarm it did not build cannot crash the run.
-func findNeighbours(swarm []Dragonfly, index int, radius float64) []int {
+func findNeighbors(swarm []Dragonfly, index int, radius float64) []int {
 	if index < 0 || index >= len(swarm) {
 		return nil
 	}
 
 	self := swarm[index].Position
-	neighbours := make([]int, 0, len(swarm)-1)
+	neighbors := make([]int, 0, len(swarm)-1)
 
 	for j := range swarm {
 		if j == index {
@@ -80,25 +80,25 @@ func findNeighbours(swarm []Dragonfly, index int, radius float64) []int {
 		}
 
 		if withinRadius(self, swarm[j].Position, radius) {
-			neighbours = append(neighbours, j)
+			neighbors = append(neighbors, j)
 		}
 	}
 
-	return neighbours
+	return neighbors
 }
 
 // separationVector returns S_i, the repulsion from local crowding:
 //
 //	S_i = -Σ_j (X_i - X_j)
 //
-// With no neighbours the sum is empty and S_i is the zero vector, which is what
+// With no neighbors the sum is empty and S_i is the zero vector, which is what
 // the reference code computes as well. The result is freshly allocated and has
 // the dimension of swarm[index].Position; the inputs are not touched.
-func separationVector(swarm []Dragonfly, index int, neighbours []int) []float64 {
+func separationVector(swarm []Dragonfly, index int, neighbors []int) []float64 {
 	self := swarmPositionAt(swarm, index)
 	separation := make([]float64, len(self))
 
-	for _, j := range neighbours {
+	for _, j := range neighbors {
 		other := swarmPositionAt(swarm, j)
 
 		// -(X_i - X_j) accumulated directly as (X_j - X_i).
@@ -112,11 +112,11 @@ func separationVector(swarm []Dragonfly, index int, neighbours []int) []float64 
 	return separation
 }
 
-// alignmentVector returns A_i, the mean step of the neighbours:
+// alignmentVector returns A_i, the mean step of the neighbors:
 //
 //	A_i = (Σ_j V_j) / N
 //
-// where V_j is neighbour j's Step, the algorithm's ΔX.
+// where V_j is neighbor j's Step, the algorithm's ΔX.
 //
 // With N == 0 the formula is undefined. The reference implementation falls back
 // to the dragonfly's own step, so A_i is a copy of swarm[index].Step and the
@@ -124,14 +124,14 @@ func separationVector(swarm []Dragonfly, index int, neighbours []int) []float64 
 // reproduced here on purpose.
 //
 // The result is freshly allocated; the inputs are not touched.
-func alignmentVector(swarm []Dragonfly, index int, neighbours []int) []float64 {
-	if len(neighbours) == 0 {
+func alignmentVector(swarm []Dragonfly, index int, neighbors []int) []float64 {
+	if len(neighbors) == 0 {
 		return copyVec(swarmStepAt(swarm, index))
 	}
 
 	alignment := make([]float64, len(swarmStepAt(swarm, index)))
 
-	for _, j := range neighbours {
+	for _, j := range neighbors {
 		other := swarmStepAt(swarm, j)
 
 		for k := range alignment {
@@ -141,7 +141,7 @@ func alignmentVector(swarm []Dragonfly, index int, neighbours []int) []float64 {
 		}
 	}
 
-	swarmScale(alignment, 1/float64(len(neighbours)))
+	swarmScale(alignment, 1/float64(len(neighbors)))
 
 	return alignment
 }
@@ -155,15 +155,15 @@ func alignmentVector(swarm []Dragonfly, index int, neighbours []int) []float64 {
 // vector. That fallback is reproduced here on purpose.
 //
 // The result is freshly allocated; the inputs are not touched.
-func cohesionVector(swarm []Dragonfly, index int, neighbours []int) []float64 {
+func cohesionVector(swarm []Dragonfly, index int, neighbors []int) []float64 {
 	self := swarmPositionAt(swarm, index)
 	cohesion := make([]float64, len(self))
 
-	if len(neighbours) == 0 {
+	if len(neighbors) == 0 {
 		return cohesion
 	}
 
-	for _, j := range neighbours {
+	for _, j := range neighbors {
 		other := swarmPositionAt(swarm, j)
 
 		for k := range cohesion {
@@ -173,7 +173,7 @@ func cohesionVector(swarm []Dragonfly, index int, neighbours []int) []float64 {
 		}
 	}
 
-	swarmScale(cohesion, 1/float64(len(neighbours)))
+	swarmScale(cohesion, 1/float64(len(neighbors)))
 
 	for k := range cohesion {
 		cohesion[k] -= self[k]

@@ -406,7 +406,7 @@ func moveBinaryDragonfly(
 func buildBinaryStep(state *runState, index int, weights weightSchedule, rng *rand.Rand) {
 	fly := &state.swarm[index]
 
-	neighbors := findNeighbours(state.swarm, index, weights.Radius)
+	neighbors := findNeighbors(state.swarm, index, weights.Radius)
 	separation := separationVector(state.swarm, index, neighbors)
 	alignment := alignmentVector(state.swarm, index, neighbors)
 	cohesion := cohesionVector(state.swarm, index, neighbors)

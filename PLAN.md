@@ -335,14 +335,14 @@ parallel work in Phase 4 has real observers and real cancellation to test agains
 
 ## Phase 4: Deterministic parallelism
 
-- [ ] `parallel.go` — `evaluationPool`, `batchBest` (stable-index selection),
+- [x] `parallel.go` — `evaluationPool`, `batchBest` (stable-index selection),
       `mergeBest`, `effectiveMaxWorkers`
-- [ ] `parallel_compute.go` — `parallelFor`
-- [ ] `parallel_phases.go` — `prepareSwarmStep`, `prepareLevyStep`
-- [ ] `parallel_variants.go` — `evaluateParallelStep`
-- [ ] `parallel_test.go` including `TestParallelIsDeterministicForSeedAcrossSchedules`
+- [x] `parallel_compute.go` — `parallelFor`
+- [x] `parallel_phases.go` — `prepareSwarmStep`, `prepareLevyStep`
+- [x] `parallel_variants.go` — `evaluateParallelStep`
+- [x] `parallel_test.go` including `TestParallelIsDeterministicForSeedAcrossSchedules`
       and `TestParallelCancellationDoesNotCommitPartialBatch`
-- [ ] `BenchmarkNeighbourScan`
+- [x] `BenchmarkNeighbourScan`
 
 **Gate**: a seeded parallel run is bit-identical to the sequential one; cancellation
 commits no partial batch; the neighbour-scan benchmark shows a real speedup at n ≥ 100.
@@ -373,11 +373,11 @@ knapsack-style toy problem reaches the known optimum.
 
 ## Phase 6: MODA — multi-objective variant
 
-- [ ] `multiobjective.go` — ported archive plus the hypercube grid
-- [ ] `MultiObjectiveConfig`, `MultiObjectiveResult`, `OptimizeMultiObjective`
-- [ ] `ExportParetoCSV`, `ExportParetoJSON`
-- [ ] ZDT1–ZDT3 and Schaffer test problems added to `functions.go`
-- [ ] `multiobjective_test.go`
+- [x] `multiobjective.go` — ported archive plus the hypercube grid
+- [x] `MultiObjectiveConfig`, `MultiObjectiveResult`, `OptimizeMultiObjective`
+- [x] `ExportParetoCSV`, `ExportParetoJSON`
+- [x] ZDT1–ZDT3 and Schaffer test problems added to `functions.go`
+- [x] `multiobjective_test.go`
 - [ ] `examples/multiobjective/`
 
 **Gate**: recovers the known Pareto fronts of ZDT1 and ZDT3; the archive never exceeds

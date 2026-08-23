@@ -279,6 +279,16 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("invalid constraint config: %w", constraintsErr)
 	}
 
+	// The binary block is checked only when the caller asked for binary mode.
+	// A continuous config carrying a stray TransferFunc is not an error; a
+	// binary one on the wrong bounds is.
+	if config.UseBinary {
+		binaryErr := validateBinaryConfig(config)
+		if binaryErr != nil {
+			return fmt.Errorf("invalid binary config: %w", binaryErr)
+		}
+	}
+
 	return nil
 }
 

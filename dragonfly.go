@@ -45,9 +45,13 @@ type runState struct {
 	// in a run goes through it, so an unconstrained run and a constrained one
 	// differ only in the policy it holds.
 	evaluator *constraintEvaluator
-	swarm     []Dragonfly
-	food      Best
-	enemy     Best
+	// pool is the bounded worker pool the objective calls fan out across, or
+	// nil for a sequential run. It holds no goroutines between batches and
+	// needs no shutdown.
+	pool  *evaluationPool
+	swarm []Dragonfly
+	food  Best
+	enemy Best
 	// funcEvals counts every call to config.ObjectiveFunc, including the ones
 	// made while initializing the swarm.
 	funcEvals int
@@ -104,7 +108,12 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 	}
 
 	rng := config.Rand
-	state := initializeRun(config, resolved, rng)
+
+	state, initializationErr := initializeRun(ctx, config, resolved, rng)
+	if initializationErr != nil {
+		return nil, initializationErr
+	}
+
 	tracker := newConvergenceTracker(config.Convergence, state.food, state.evaluator)
 
 	logOptimizationStarted(ctx, resolved.logger, config)
@@ -121,11 +130,13 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 
 		weights := computeWeights(config, t, config.MaxIterations, rng)
 
-		for i := range state.swarm {
-			moveDragonfly(state, i, config, weights, rng)
+		prepareSwarm(state, config, weights, rng)
+
+		evaluationErr := state.evaluate(ctx)
+		if evaluationErr != nil {
+			return nil, evaluationErr
 		}
 
-		state.evaluateSwarm()
 		curve = append(curve, state.food.Cost)
 		completed = t + 1
 
@@ -169,7 +180,13 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 // leading slots only. The step draw and every slot beyond the supplied
 // positions are left alone, so seeding the first few dragonflies does not shift
 // the random stream the rest of the swarm is built from.
-func initializeRun(config *Config, options runOptions, rng *rand.Rand) *runState {
+//
+// The evaluation pool, when the run is a parallel one, is built here and lives
+// as long as the run. It returns an error only when the context is canceled
+// before the initial population has been scored.
+func initializeRun(
+	ctx context.Context, config *Config, options runOptions, rng *rand.Rand,
+) (*runState, error) {
 	swarm := make([]Dragonfly, config.NPop)
 	for i := range swarm {
 		position := unifrndVec(config.LowerBound, config.UpperBound, config.ProblemSize, rng)
@@ -209,9 +226,16 @@ func initializeRun(config *Config, options runOptions, rng *rand.Rand) *runState
 		},
 	}
 
-	state.evaluateSwarm()
+	if config.EnableParallel {
+		state.pool = newEvaluationPool(state.evaluator, effectiveMaxWorkers(config), config.NPop)
+	}
 
-	return state
+	evaluationErr := state.evaluate(ctx)
+	if evaluationErr != nil {
+		return nil, evaluationErr
+	}
+
+	return state, nil
 }
 
 // evaluateSwarm scores every dragonfly and updates the food (best) and enemy
@@ -229,8 +253,9 @@ func initializeRun(config *Config, options runOptions, rng *rand.Rand) *runState
 // swarm toward an infeasible optimum; the enemy uses the same ranking read
 // backwards, so the worst candidate is the one the incumbent enemy still beats.
 //
-// All calls happen on the calling goroutine. Parallel evaluation arrives in a
-// later phase and depends on every RNG draw staying here.
+// All calls happen on the calling goroutine. The parallel path in
+// evaluateParallelStep produces exactly the same state by exactly the same
+// rules; see runState.evaluate.
 func (state *runState) evaluateSwarm() {
 	for i := range state.swarm {
 		fly := &state.swarm[i]
@@ -247,41 +272,30 @@ func (state *runState) evaluateSwarm() {
 	}
 }
 
-// moveDragonfly advances one dragonfly by a single step, following PLAN.md §1.2.
+// evaluate scores the swarm and updates the food source and the enemy, through
+// the worker pool when the run is parallel and inline when it is not.
 //
-// Boundary repair ordering: the reference DA.m repairs a dragonfly at the top
-// of its per-dragonfly block, so the swarm it computes S, A and C against is
-// partly repaired and partly not, and the positions left in the population when
-// the loop ends are the unrepaired ones. This implementation repairs at the
-// bottom instead, immediately after the position update. The deviation buys two
-// properties worth more than bit-fidelity with the MATLAB source: every
-// position handed to the objective function is inside [LowerBound, UpperBound],
-// and so is every position in the returned Result. Because the repair still
-// happens exactly once per dragonfly per iteration, the dynamics are otherwise
-// the same -- only the point in the iteration at which the wrap becomes visible
-// to the other dragonflies moves.
-func moveDragonfly(state *runState, index int, config *Config, weights weightSchedule, rng *rand.Rand) {
-	fly := &state.swarm[index]
+// Both paths compute the same thing. The sequential one is left exactly as it
+// was -- it does not consult the context, because OptimizeContext already
+// checks cancellation at the top of every iteration and an unparallelized run
+// has nothing to abandon midway. The parallel one can be canceled between
+// objective calls, and reports that as an error rather than committing a
+// half-scored batch.
+func (state *runState) evaluate(ctx context.Context) error {
+	if state.pool == nil {
+		state.evaluateSwarm()
 
-	neighbors := findNeighbours(state.swarm, index, weights.Radius)
-	separation := separationVector(state.swarm, index, neighbors)
-	alignment := alignmentVector(state.swarm, index, neighbors)
-	cohesion := cohesionVector(state.swarm, index, neighbors)
-	food := foodVector(fly.Position, state.food.Position)
-	enemy := enemyVector(fly.Position, state.enemy.Position)
-
-	switch {
-	case foodInRadius(fly.Position, state.food.Position, weights.Radius):
-		applyFullStep(fly, weights, separation, alignment, cohesion, food, enemy)
-	case len(neighbors) > 1:
-		applySwarmingStep(fly, weights, separation, alignment, cohesion, rng)
-	default:
-		applyLevyWalk(fly, config, rng)
+		return nil
 	}
 
-	sanitizeVec(fly.Position, config.LowerBound, config.UpperBound, rng)
-	applyBounds(fly.Position, fly.Step, config.LowerBound, config.UpperBound,
-		effectiveBoundaryMethod(config), rng)
+	count, err := evaluateParallelStep(ctx, state, state.pool)
+	if err != nil {
+		return err
+	}
+
+	state.funcEvals += count
+
+	return nil
 }
 
 // foodInRadius reports whether the food source lies inside the per-dimension
@@ -311,88 +325,4 @@ func foodInRadius(position, food []float64, radius float64) bool {
 	}
 
 	return true
-}
-
-// applyFullStep is the food-in-range branch: the five-factor step of the paper,
-//
-//	ΔX = (s·S + a·A + c·C + f·F + e·E) + w·ΔX
-//
-// with the weights taken from the schedule, one set per iteration rather than
-// per dimension.
-func applyFullStep(fly *Dragonfly, weights weightSchedule, separation, alignment, cohesion, food, enemy []float64) {
-	for j := range fly.Step {
-		fly.Step[j] = weights.Separation*separation[j] +
-			weights.Alignment*alignment[j] +
-			weights.Cohesion*cohesion[j] +
-			weights.Food*food[j] +
-			weights.Enemy*enemy[j] +
-			weights.Inertia*fly.Step[j]
-	}
-
-	commitStep(fly, weights.MaxStep)
-}
-
-// applySwarmingStep is the food-out-of-range branch for a dragonfly with more
-// than one neighbor: local swarming only, with no food and no enemy term,
-//
-//	ΔX_j = w·ΔX_j + rand·A_j + rand·C_j + rand·S_j
-//
-// The three rand factors are drawn per dimension, inside this loop, exactly as
-// DA.m draws them -- not once per dragonfly. Drawing them once would make the
-// three primitives share a scaling factor within a step and change the search
-// behavior, not just the random stream. The draw order (alignment, cohesion,
-// separation) is the reference implementation's evaluation order.
-func applySwarmingStep(
-	fly *Dragonfly, weights weightSchedule, separation, alignment, cohesion []float64, rng *rand.Rand,
-) {
-	for j := range fly.Step {
-		randAlignment := unifrnd(0, 1, rng)
-		randCohesion := unifrnd(0, 1, rng)
-		randSeparation := unifrnd(0, 1, rng)
-
-		fly.Step[j] = weights.Inertia*fly.Step[j] +
-			randAlignment*alignment[j] +
-			randCohesion*cohesion[j] +
-			randSeparation*separation[j]
-	}
-
-	commitStep(fly, weights.MaxStep)
-}
-
-// applyLevyWalk is the food-out-of-range branch for an isolated dragonfly: the
-// multiplicative Lévy random walk X += Levy(d) ⊙ X, after which ΔX is reset to
-// zero because the walk replaces the step rather than contributing to it.
-//
-// With Config.UseLevyWalk disabled the dragonfly stays where it is for this
-// iteration and only its step is reset, which is the documented alternative.
-func applyLevyWalk(fly *Dragonfly, config *Config, rng *rand.Rand) {
-	if config.UseLevyWalk {
-		walk := levyVector(len(fly.Position), config.LevyBeta, config.LevyScale, rng)
-		for j := range fly.Position {
-			fly.Position[j] += walk[j] * fly.Position[j]
-		}
-	}
-
-	for j := range fly.Step {
-		fly.Step[j] = 0
-	}
-}
-
-// commitStep clamps ΔX componentwise to ±maxStep and adds it to the position.
-//
-// The step is sanitized before the clamp because clamping cannot repair a NaN:
-// every comparison against NaN is false, so a NaN component would survive the
-// clamp and poison the position.
-func commitStep(fly *Dragonfly, maxStep float64) {
-	for j := range fly.Step {
-		if math.IsNaN(fly.Step[j]) {
-			fly.Step[j] = 0
-		}
-	}
-
-	clampVec(fly.Step, -maxStep, maxStep)
-
-	for j := range fly.Position {
-		fly.Position[j] += fly.Step[j]
-	}
 }

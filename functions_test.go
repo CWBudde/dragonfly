@@ -870,3 +870,122 @@ func BenchmarkWeierstrass(b *testing.B) {
 		_ = Weierstrass(x)
 	}
 }
+
+// assertObjectives compares a multi-objective result against expected values.
+func assertObjectives(t *testing.T, name string, x, got, want []float64) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("%s(%v) returned %d objectives, want %d", name, x, len(got), len(want))
+	}
+
+	for m := range want {
+		if math.Abs(got[m]-want[m]) > epsilon {
+			t.Errorf("%s(%v)[%d] = %v, want %v", name, x, m, got[m], want[m])
+		}
+	}
+}
+
+// TestZDT1 tests the ZDT1 multi-objective benchmark problem. On the Pareto front
+// the tail variables are zero, so g = 1 and f2 = 1 - sqrt(f1).
+func TestZDT1(t *testing.T) {
+	tests := []struct {
+		name string
+		x    []float64
+		want []float64
+	}{
+		{name: "front_origin", x: []float64{0, 0, 0}, want: []float64{0, 1}},
+		{name: "front_quarter", x: []float64{0.25, 0, 0}, want: []float64{0.25, 0.5}},
+		{name: "front_upper", x: []float64{1, 0, 0}, want: []float64{1, 0}},
+		// g = 1 + 9*(0.5+0.5)/2 = 5.5; f2 = 5.5*(1 - sqrt(1/5.5)).
+		{name: "off_front", x: []float64{1, 0.5, 0.5}, want: []float64{1, 5.5 * (1 - math.Sqrt(1/5.5))}},
+		{name: "single_dimension", x: []float64{0.36}, want: []float64{0.36, 0.4}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertObjectives(t, "ZDT1", tt.x, ZDT1(tt.x), tt.want)
+		})
+	}
+}
+
+// TestZDT2 tests the ZDT2 multi-objective benchmark problem, whose front is the
+// concave curve f2 = 1 - f1 squared.
+func TestZDT2(t *testing.T) {
+	tests := []struct {
+		name string
+		x    []float64
+		want []float64
+	}{
+		{name: "front_origin", x: []float64{0, 0, 0}, want: []float64{0, 1}},
+		{name: "front_half", x: []float64{0.5, 0, 0}, want: []float64{0.5, 0.75}},
+		{name: "front_upper", x: []float64{1, 0, 0}, want: []float64{1, 0}},
+		// g = 1 + 9*1/2 = 5.5; f2 = 5.5*(1 - (1/5.5)^2).
+		{name: "off_front", x: []float64{1, 0.5, 0.5}, want: []float64{1, 5.5 * (1 - 1/(5.5*5.5))}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertObjectives(t, "ZDT2", tt.x, ZDT2(tt.x), tt.want)
+		})
+	}
+}
+
+// TestZDT3 tests the ZDT3 multi-objective benchmark problem, whose sine term
+// breaks the front into five disconnected pieces.
+func TestZDT3(t *testing.T) {
+	tests := []struct {
+		name string
+		x    []float64
+		want []float64
+	}{
+		// sin(0) = 0, so the sine term vanishes at both ends of the interval.
+		{name: "front_origin", x: []float64{0, 0, 0}, want: []float64{0, 1}},
+		{name: "front_upper", x: []float64{1, 0, 0}, want: []float64{1, 0}},
+		// sin(10*pi*0.1) = sin(pi) = 0, so f2 = 1 - sqrt(0.1).
+		{name: "front_sine_zero", x: []float64{0.1, 0, 0}, want: []float64{0.1, 1 - math.Sqrt(0.1)}},
+		// sin(10*pi*0.05) = sin(pi/2) = 1, so f2 = 1 - sqrt(0.05) - 0.05.
+		{name: "front_sine_peak", x: []float64{0.05, 0, 0}, want: []float64{0.05, 1 - math.Sqrt(0.05) - 0.05}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertObjectives(t, "ZDT3", tt.x, ZDT3(tt.x), tt.want)
+		})
+	}
+}
+
+// TestSchafferN1 tests the Schaffer N.1 multi-objective benchmark problem, the
+// two shifted parabolas f1 = x squared and f2 = (x-2) squared.
+func TestSchafferN1(t *testing.T) {
+	tests := []struct {
+		name string
+		x    []float64
+		want []float64
+	}{
+		{name: "front_lower", x: []float64{0}, want: []float64{0, 4}},
+		{name: "front_middle", x: []float64{1}, want: []float64{1, 1}},
+		{name: "front_upper", x: []float64{2}, want: []float64{4, 0}},
+		{name: "outside_front", x: []float64{-1}, want: []float64{1, 9}},
+		{name: "extra_components_ignored", x: []float64{1, 7, -3}, want: []float64{1, 1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertObjectives(t, "SchafferN1", tt.x, SchafferN1(tt.x), tt.want)
+		})
+	}
+}
+
+// TestMultiObjectiveFunctionsDegenerateInput checks that the multi-objective
+// problems handle an empty position vector without panicking.
+func TestMultiObjectiveFunctionsDegenerateInput(t *testing.T) {
+	for name, fn := range map[string]MultiObjectiveFunction{
+		"ZDT1": ZDT1, "ZDT2": ZDT2, "ZDT3": ZDT3, "SchafferN1": SchafferN1,
+	} {
+		values := fn(nil)
+		if len(values) != 2 {
+			t.Errorf("%s(nil) returned %d objectives, want 2", name, len(values))
+		}
+	}
+}

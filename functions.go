@@ -274,3 +274,79 @@ func ExpandedSchafferF6(x []float64) float64 {
 
 	return sum
 }
+
+// The multi-objective benchmark problems below have the MultiObjectiveFunction
+// signature: they return one value per objective, all minimized. They exist to
+// exercise OptimizeMultiObjective, whose front they have known analytic
+// solutions for.
+
+// ZDT1 is the ZDT1 benchmark problem: two objectives over a convex, continuous Pareto front.
+// The front is f2 = 1 - sqrt(f1) for f1 in [0, 1], reached when x[1:] are all zero.
+// Typical bounds: [0, 1] in every dimension, with 30 dimensions in the original suite.
+func ZDT1(x []float64) []float64 {
+	f1, g := zdtFirstObjectiveAndG(x)
+	f2 := g * (1 - math.Sqrt(f1/g))
+
+	return []float64{f1, f2}
+}
+
+// ZDT2 is the ZDT2 benchmark problem: ZDT1's landscape with a concave Pareto front.
+// The front is f2 = 1 - f1² for f1 in [0, 1], reached when x[1:] are all zero.
+// Typical bounds: [0, 1] in every dimension, with 30 dimensions in the original suite.
+func ZDT2(x []float64) []float64 {
+	f1, g := zdtFirstObjectiveAndG(x)
+	ratio := f1 / g
+	f2 := g * (1 - ratio*ratio)
+
+	return []float64{f1, f2}
+}
+
+// ZDT3 is the ZDT3 benchmark problem: a Pareto front broken into five disconnected pieces.
+// The front is f2 = 1 - sqrt(f1) - f1·sin(10πf1) for f1 in [0, 1], reached when x[1:] are
+// all zero; the sine term is what disconnects it, and what makes ZDT3 the problem an
+// archive that collapses onto one region fails first.
+// Typical bounds: [0, 1] in every dimension, with 30 dimensions in the original suite.
+func ZDT3(x []float64) []float64 {
+	f1, g := zdtFirstObjectiveAndG(x)
+	ratio := f1 / g
+	f2 := g * (1 - math.Sqrt(ratio) - ratio*math.Sin(10*math.Pi*f1))
+
+	return []float64{f1, f2}
+}
+
+// zdtFirstObjectiveAndG returns the first objective f1 = x[0] and the shared ZDT
+// convergence term g = 1 + 9·Σ x[1:] / (n-1), which is exactly 1 on the Pareto front.
+//
+// An empty position scores f1 = 0, and a one-dimensional position has an empty
+// tail sum and therefore g = 1: the degenerate cases sit on the front rather
+// than dividing by zero.
+func zdtFirstObjectiveAndG(x []float64) (float64, float64) {
+	if len(x) == 0 {
+		return 0, 1
+	}
+
+	if len(x) == 1 {
+		return x[0], 1
+	}
+
+	tail := 0.0
+	for _, val := range x[1:] {
+		tail += val
+	}
+
+	return x[0], 1 + 9*tail/float64(len(x)-1)
+}
+
+// SchafferN1 is the Schaffer N.1 benchmark problem: the classic one-variable, two-objective
+// problem, with a convex front produced by two shifted parabolas pulling in opposite directions.
+// The front is the image of x in [0, 2]; only the first component of the position is read.
+// Typical bounds: [-10, 10], though the original problem allows anything up to [-10^5, 10^5].
+func SchafferN1(x []float64) []float64 {
+	if len(x) == 0 {
+		return []float64{0, 4}
+	}
+
+	offset := x[0] - 2
+
+	return []float64{x[0] * x[0], offset * offset}
+}

@@ -27,6 +27,9 @@ const (
 	// PresetFastConvergence is NewFastConvergenceConfig: a short run on a
 	// cheap objective, converging early at the cost of exploration.
 	PresetFastConvergence ConfigPreset = "fast-convergence"
+	// PresetBinary is NewBinaryConfig: BDA on the unit interval with the
+	// paper's default v3 transfer function.
+	PresetBinary ConfigPreset = "binary"
 )
 
 // LoadConfig reads a Config from a JSON file written by SaveConfig.
@@ -147,6 +150,8 @@ func NewPresetConfig(preset ConfigPreset) (*Config, error) {
 		return NewHighDimensionalConfig(), nil
 	case PresetFastConvergence:
 		return NewFastConvergenceConfig(), nil
+	case PresetBinary:
+		return NewBinaryConfig(), nil
 	default:
 		return nil, fmt.Errorf("unknown preset %q (known presets: %s)",
 			string(preset), strings.Join(PresetNames(), ", "))
@@ -159,6 +164,7 @@ func ListPresets() map[ConfigPreset]string {
 		PresetDefault:         "Standard continuous DA with every weight on its adaptive schedule",
 		PresetHighDimensional: "Larger swarm, longer run and slower radius growth for many dimensions",
 		PresetFastConvergence: "Short run on a cheap objective: converges early, explores less",
+		PresetBinary:          "BDA: binary positions on [0,1] with the v3 transfer function",
 	}
 }
 
