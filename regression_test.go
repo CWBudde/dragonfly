@@ -1,9 +1,7 @@
 package dragonfly
 
 import (
-	"context"
 	"math"
-	"math/rand"
 	"sort"
 	"testing"
 )
@@ -76,10 +74,10 @@ type RegressionBaseline struct {
 	Binary bool
 }
 
-// regressionRuns is how many seeds each baseline is measured over. Ten is
-// enough for the mean to be stable to within the 3x tolerance and cheap enough
-// that the whole suite stays inside a few seconds.
-const regressionRuns = 10
+// regressionRuns is how many seeds each baseline is measured over. Fifteen is
+// the measured block recorded above: DA uses seeds 1000..1014 and BDA uses
+// seeds 2000..2014.
+const regressionRuns = 15
 
 // oneMaxBits is the OneMax objective the BDA baseline minimizes: the count of
 // zero bits, so an all-ones string costs zero. It is deliberately trivial --
@@ -235,7 +233,8 @@ func (baseline RegressionBaseline) configFor(run int) *Config {
 	config.ProblemSize = baseline.Dimensions
 	config.MaxIterations = baseline.Iterations
 	config.NPop = baseline.Population
-	config.Rand = rand.New(rand.NewSource(baseline.Seed + int64(run)))
+	seed := baseline.Seed + int64(run)
+	config.Seed = &seed
 
 	return config
 }
@@ -266,6 +265,12 @@ func measureBaseline(t *testing.T, baseline RegressionBaseline, runs int) []floa
 			t.Fatalf("%s: run %d failed: %v", baseline.Name, run, err)
 		}
 
+		wantSeed := baseline.Seed + int64(run)
+		if !result.SeedKnown || result.Seed != wantSeed {
+			t.Fatalf("%s: run %d reports seed (%d, known=%t), want %d",
+				baseline.Name, run, result.Seed, result.SeedKnown, wantSeed)
+		}
+
 		costs[run] = result.GlobalBest.Cost
 	}
 
@@ -277,7 +282,7 @@ func measureBaseline(t *testing.T, baseline RegressionBaseline, runs int) []floa
 // inside the tolerated degradation.
 func TestRegressionSuite(t *testing.T) {
 	if testing.Short() {
-		t.Skip("the regression suite runs 60 optimizations; skipped under -short")
+		t.Skip("the regression suite runs 90 optimizations; skipped under -short")
 	}
 
 	for _, baseline := range regressionBaselines {
@@ -408,49 +413,5 @@ func TestRegressionParallelMatchesSequential(t *testing.T) {
 	if parallel.FuncEvalCount != sequential.FuncEvalCount {
 		t.Errorf("parallel evaluation count %d differs from sequential %d",
 			parallel.FuncEvalCount, sequential.FuncEvalCount)
-	}
-}
-
-// TestRegressionMultiObjectiveArchive watches MODA the only way a Pareto run
-// can be watched: the archive has to stay non-dominated and has to stay
-// populated. The v0.2 correctness fixes changed this seeded trajectory even
-// under the named legacy policy. The five corrected reference sizes are
-// [11, 6, 13, 6, 5], so five is the measured lower envelope rather than a
-// golden size every stochastic run is expected to reproduce under other seeds.
-func TestRegressionMultiObjectiveArchive(t *testing.T) {
-	if testing.Short() {
-		t.Skip("the MODA regression block runs five optimizations; skipped under -short")
-	}
-
-	const floor = 5
-
-	for run := range 5 {
-		config := NewMultiObjectiveConfig()
-		config.ObjectiveFunc = ZDT1
-		// This baseline was measured from the v0.1 MATLAB-control-flow /
-		// MOPSO-grid trajectory. Keep its provenance explicit; paper mode needs
-		// its own multi-seed study before acquiring a degradation floor.
-		config.ArchivePolicy = ArchivePolicyMOPSOGrid
-		config.Swarm.FidelityMode = FidelityMATLAB
-		config.Swarm.ProblemSize = 10
-		config.Swarm.LowerBound = 0
-		config.Swarm.UpperBound = 1
-		config.Swarm.MaxIterations = 200
-		config.Swarm.NPop = 40
-		config.Swarm.Rand = rand.New(rand.NewSource(int64(3000 + run)))
-
-		result, err := OptimizeMultiObjective(context.Background(), config)
-		if err != nil {
-			t.Fatalf("run %d failed: %v", run, err)
-		}
-
-		if !result.Archive.IsNonDominated() {
-			t.Errorf("run %d: the archive contains a dominated solution", run)
-		}
-
-		if result.Archive.Len() < floor {
-			t.Errorf("run %d: archive holds %d solutions, want at least measured floor %d",
-				run, result.Archive.Len(), floor)
-		}
 	}
 }

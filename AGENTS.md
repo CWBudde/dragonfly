@@ -15,9 +15,10 @@ written to research fidelity against the author's reference MATLAB code (`DA.m`,
 | **BDA**  | Single-objective, binary / discrete | `OptimizeContext` with a transfer function |
 | **MODA** | Multi-objective, continuous         | `OptimizeMultiObjective`                   |
 
-**Current status**: all ten phases are complete and `v0.1.0` is released. Everything this
-document describes under _Architecture & Core Concepts_ is implemented, and the descriptions
-are of the code as it stands.
+**Current status**: `v0.1.0` is released. The Phase 11 correctness/fidelity remediation and
+local `v0.2.0` release preparation are underway; `v0.2.0` is not released. Everything this
+document describes under _Architecture & Core Concepts_ is implemented unless `PLAN.md` says
+otherwise.
 
 **PLAN.md is the single source of truth for progress.** Before starting work, read PLAN.md
 and check which boxes are ticked — including its `Deferred` section, which records the known
@@ -26,6 +27,8 @@ gaps honestly. Do not infer status from this file.
 **Module**: `github.com/CWBudde/dragonfly`, package `dragonfly`, flat at the repo root
 (no `internal/`, no `pkg/`, no `cmd/`). Go 1.23.3. The only direct dependency is
 `github.com/cucumber/godog`, and it is test-only. Everything else is standard library.
+The lowercase repository component is canonical. The proxy-cached
+`github.com/CWBudde/Dragonfly@v0.1.0` path is obsolete, distinct and receives no updates.
 
 ## Build & Development Commands
 
@@ -62,8 +65,8 @@ just check-formatted    # treefmt --fail-on-change
 just check-tidy         # go mod tidy -diff
 just check              # check-formatted + check-tidy + lint + test
 just check-race         # same, with test-race
-just ci                 # verify + check
-just ci-race            # verify + check-race
+just ci                 # quality + coverage + examples/WASM + security
+just ci-race            # same, plus the short race suite
 
 # Dependencies and misc
 just tidy / just verify / just init / just clean
@@ -74,8 +77,8 @@ just vuln               # govulncheck, reports by reachability
 just security           # both of the above
 
 # Release
-just release-check 0.1.0
-just release 0.1.0
+just release-check 0.2.0
+just release 0.2.0
 ```
 
 ### Direct Go Commands
@@ -143,7 +146,7 @@ Two details are easy to get wrong and must both carry dedicated unit tests:
 Separation, alignment and cohesion come from Reynolds' 1987 boids model; food and enemy are
 DA's addition.
 
-### Main Optimization Flow
+### Paper-Default Optimization Flow
 
 ```
 1. Initialize the swarm: X_i uniform in [lb, ub], ΔX_i small random
@@ -183,6 +186,19 @@ DA's addition.
 4. Return Result{GlobalBest, Convergence, FuncEvalCount, Seed, TerminationReason}
 ```
 
+Paper mode evaluates initialization and every moved swarm, so a full run makes
+`NPop × (MaxIterations + 1)` objective calls. MATLAB mode instead follows all three reference
+loops: compute one-based schedules, evaluate the current population, update incumbents/archive
+and choose MODA food/enemy, build the movement, then move. Its final moved swarm is deliberately
+unevaluated, so a full run makes `NPop × MaxIterations` calls. Results and archives contain
+evaluated candidates only.
+
+For continuous DA/MODA the MATLAB movement order is primitives → pre-move wrap and step reset →
+move → non-finite sanitization → post-move hard clamp. `FidelityMATLAB` overrides
+`BoundaryMethod`. DA also keeps the reference's strict-interior movement enemy separate from
+the actual worst evaluated candidate returned as `Result.Worst`; population snapshots expose
+the movement enemy with an evaluated pre-move swarm copy.
+
 `Config.FidelityMode` makes the disagreement explicit: paper behavior is the default;
 `FidelityMATLAB` reproduces the reference separation sign, one-neighbor fallback and
 food-distance branch. Never combine pieces of both into an unnamed hybrid.
@@ -208,7 +224,8 @@ half of the rule changes the exploration behaviour.
 | `"reflect"` | Mirror the overshoot back into the feasible interval               |
 
 Wrapping is genuinely part of DA's exploration, but it interacts badly with some constrained
-problems, which is why the alternatives exist as a named, documented choice.
+problems, which is why the alternatives exist as a named, documented paper-mode choice. In
+continuous MATLAB mode the fixed reference boundary sequence above applies instead.
 
 ### Adaptive Weight Schedules (`weights.go`)
 
@@ -276,6 +293,10 @@ needs on top. Three named archive policies are available:
 - `ArchivePolicyMATLABDensity`: objective-span/20 density ranking from `MODA.m`
 - `ArchivePolicyMOPSOGrid`: the v0.1 exponent-weighted grid extension
 
+MATLAB-compatible MODA uses the `MODA.m` schedule rather than the shared paper schedule:
+inertia decreases `0.9 → 0.2`, automatic S/A/C/E weights follow `mc` directly, and only the
+automatic food term draws `2·rand`. Explicit pinned weights still override those defaults.
+
 `ArchiveSize = 100` is verified against `MODA.m`. The MOPSO extension retains
 `β = 4, γ = 2, δ = 2, NGrid = 10`, but those are not MODA reference constants.
 
@@ -332,7 +353,7 @@ Dragonfly/
 ├── go.mod  LICENSE  .gitignore
 ├── README.md  CHANGELOG.md  PLAN.md  CLAUDE.md  AGENTS.md
 ├── justfile  .golangci.toml  treefmt.toml
-├── .github/workflows/{test.yml,release.yml}
+├── .github/workflows/{test.yml,release.yml,security.yml}
 │
 │  ── core ──
 ├── dragonfly.go        package doc, Optimize, OptimizeContext, the main loop
@@ -570,8 +591,9 @@ synchronously on the caller's goroutine — they must not become an RNG or order
 4. **DA wraps at the boundary by default; it does not clamp.** A dragonfly that leaves the box
    teleports to the opposite bound _and_ has its step component reset to a fresh random draw.
    Users arriving from PSO, GA or Mayfly expect clamping and will read wrapping as a bug —
-   and code ported from Mayfly will silently apply `maxVec`/`minVec` instead. Route every
-   boundary fix through `Config.BoundaryMethod`, and remember the Δx reset is half the rule.
+   and code ported from Mayfly will silently apply `maxVec`/`minVec` instead. Paper-mode fixes
+   route through `Config.BoundaryMethod`; MATLAB mode deliberately bypasses it for the reference
+   pre-wrap/reset and post-clamp sequence. The Δx reset is half the wrap rule.
 
 5. **Do not present the legacy MOPSO exponents as MODA constants.** The audit verified Lévy
    β/σ/scale, BDA's `±6` clamp and MODA's archive size 100 against the official packages.
@@ -611,7 +633,9 @@ synchronously on the caller's goroutine — they must not become an RNG or order
 - `just security` runs both halves of the scan — `just audit` (nancy, production tree) and
   `just vuln` (govulncheck, which also covers the test-only tree and reports by reachability).
   The library is stdlib-only, so nancy reports zero audited dependencies; that is the intended
-  state, and the recipe exists to catch the first real dependency that is ever added.
+  state, and the recipe exists to catch the first real dependency that is ever added. Scanner
+  versions are pinned and checked; ordinary CI, release validation and the weekly/manual
+  security workflow run them under Go 1.26.
 - Release: `just ci`, then `just release-check <semver>`, then `just release <semver>`.
   `docs/releasing.md` has the full procedure.
 
@@ -654,6 +678,10 @@ Everything else:
 - `.golangci.toml` — the lint contract (golangci-lint v2, `default = 'all'` minus the
   documented exclusions)
 - `treefmt.toml` — gofumpt → gci for Go, prettier for md/json/yaml, taplo for toml, shfmt for shell
-- `.github/workflows/{test.yml,release.yml}` — CI on a Go 1.23 + 1.24 matrix; release asserts
-  the module path
+- `.github/workflows/{test.yml,release.yml,security.yml}` — CI on Go 1.23 + 1.26; release
+  asserts the module path and runs race, coverage, examples/WASM and security gates; the
+  separate security workflow also runs weekly
+- Tool versions are centralized in `justfile` and checked, not merely discovered on `PATH`:
+  treefmt 2.5.0, golangci-lint 2.11.4, gofumpt 0.11.0, gci 0.14.0, shfmt 3.13.1,
+  Taplo 0.10.0, Prettier 3.9.6, ShellCheck 0.11.0, Nancy 2.1.0 and govulncheck 1.1.4.
 - `AGENTS.md` — this file. `CLAUDE.md` is a pointer to it

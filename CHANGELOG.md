@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-24
+
 ### Added
 
 - Paper-default and MATLAB compatibility modes (`Config.FidelityMode`), plus named MODA
@@ -16,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MultiObjectiveResult.SeedKnown`.
 - Exact small-sample Wilcoxon tests, tie corrections, Holm-adjusted pairwise p-values and
   failed-run accounting in comparison reports.
+- Reproducible, opt-in release studies for corrected BDA transfer families and 30-dimensional
+  MODA profiles, with deterministic CSV evidence, generated Markdown summaries, source hashes
+  and exact configuration provenance.
+- A scheduled security workflow plus an ordinary CI security job, both running pinned Nancy
+  and `govulncheck` scans.
 
 - A WebAssembly browser demo in `examples/wasm-demo`, published to GitHub Pages by
   `.github/workflows/wasm-demo-pages.yml` and built by `scripts/build-wasm-demo.sh`. Four
@@ -68,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected DA neighborhood exclusion, enemy-radius gating, schedule indexing, reflection,
   cancellation and non-finite-objective handling. Paper mode and MATLAB mode now have
   separately tested step transitions where their operators disagree.
+- MATLAB compatibility now reproduces the reference evaluate-before-move lifecycle for DA,
+  BDA and MODA, including `NPop × iterations` evaluation accounting, schedule timing, the
+  unevaluated final movement, strict-interior DA enemy selection, and MATLAB's boundary order.
+  MATLAB mode deliberately ignores `BoundaryMethod`; paper mode retains the documented
+  selectable policies and its evaluate-after-move lifecycle.
 - Corrected BDA to use the whole swarm and an unconditional five-factor step; S-shaped
   transfers now assign a sampled bit while V-shaped transfers complement the current bit.
 - MODA now defaults to the paper's `1/N` and `N` archive selection, validates objective
@@ -199,5 +211,6 @@ Recorded in `PLAN.md` rather than hidden:
 - `Levy([])` panics and empty-input handling is inconsistent across the benchmark suite.
   Neither affects a real optimization, where every position has at least one component.
 
-[Unreleased]: https://github.com/CWBudde/dragonfly/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/CWBudde/dragonfly/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/CWBudde/dragonfly/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/CWBudde/dragonfly/releases/tag/v0.1.0

@@ -1517,7 +1517,16 @@ func OptimizeMultiObjective(
 			return nil, ctxErr
 		}
 
-		accepted, stepErr := state.advance(ctx, config, t, rng)
+		var (
+			accepted int
+			stepErr  error
+		)
+		if effectiveFidelityMode(swarmConfig) == FidelityMATLAB {
+			accepted, stepErr = state.advanceMATLAB(ctx, config, t, rng)
+		} else {
+			accepted, stepErr = state.advance(ctx, config, t, rng)
+		}
+
 		if stepErr != nil {
 			return nil, stepErr
 		}
@@ -1592,9 +1601,15 @@ func initializeMultiObjectiveRun(
 		state.maxWorkers = effectiveMaxWorkers(swarmConfig)
 	}
 
-	_, err := state.evaluateSwarm(ctx, config, rng)
-	if err != nil {
-		return nil, err
+	// Paper mode starts from an evaluated archive and then evaluates every
+	// moved population. MODA.m instead evaluates at the start of each loop and
+	// leaves the final moved population unevaluated, so its initialization must
+	// stay raw until advanceMATLAB performs generation one.
+	if effectiveFidelityMode(swarmConfig) != FidelityMATLAB {
+		_, err := state.evaluateSwarm(ctx, config, rng)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return state, nil
@@ -1750,9 +1765,10 @@ func (state *moState) advance(
 	// moves this run makes; only the food and enemy positions are substituted.
 	// Cost is not read by the step, so the two Best values carry positions only.
 	view := &runState{
-		swarm: state.swarm,
-		food:  Best{Position: food},
-		enemy: Best{Position: enemy},
+		swarm:         state.swarm,
+		food:          Best{Position: food},
+		enemy:         Best{Position: enemy},
+		movementEnemy: Best{Position: enemy},
 	}
 
 	for i := range state.swarm {
@@ -1760,6 +1776,73 @@ func (state *moState) advance(
 	}
 
 	return state.evaluateSwarm(ctx, config, rng)
+}
+
+// advanceMATLAB reproduces MODA.m's generation lifecycle. The current swarm is
+// evaluated and offered to the archive first; food and enemy are then selected
+// from that evaluated archive and the swarm moves once. The moved population is
+// the starting population of the next generation, and the final movement is
+// deliberately never evaluated.
+func (state *moState) advanceMATLAB(
+	ctx context.Context,
+	config *MultiObjectiveConfig,
+	iteration int,
+	rng *rand.Rand,
+) (int, error) {
+	swarmConfig := config.Swarm
+	weights := computeMATLABMODAWeights(swarmConfig, iteration+1, swarmConfig.MaxIterations, rng)
+
+	accepted, evaluationErr := state.evaluateSwarm(ctx, config, rng)
+	if evaluationErr != nil {
+		return 0, evaluationErr
+	}
+
+	food := copyVec(archivePosition(state.archive.selectSparse(rng)))
+	enemy := copyVec(archivePosition(state.archive.selectCrowded(rng)))
+	view := &runState{
+		swarm:         state.swarm,
+		food:          Best{Position: food},
+		enemy:         Best{Position: enemy},
+		movementEnemy: Best{Position: enemy},
+	}
+
+	for i := range state.swarm {
+		prepareSwarmStep(view, i, swarmConfig, weights, rng)
+	}
+
+	return accepted, ctx.Err()
+}
+
+// computeMATLABMODAWeights is the schedule in the author's MODA.m rather than
+// DA.m's schedule used by the shared paper implementation. Automatic S/A/C/E
+// weights all follow mc directly, the food term alone draws a random factor,
+// and inertia falls from 0.9 to 0.2. Explicit fixed weights remain deliberate
+// library extensions and continue to override their automatic counterparts.
+func computeMATLABMODAWeights(
+	config *Config,
+	iteration, maxIterations int,
+	rng *rand.Rand,
+) weightSchedule {
+	progress := scheduleProgress(iteration, maxIterations)
+	mc := convergenceFactor(iteration, maxIterations)
+	automaticSwarmWeight := mc
+
+	if float64(iteration) >= 0.75*float64(maxIterations) && iteration > 0 {
+		automaticSwarmWeight /= float64(iteration)
+	}
+
+	span := config.UpperBound - config.LowerBound
+
+	return weightSchedule{
+		Inertia:    0.9 - progress*(0.9-0.2),
+		Separation: resolveWeight(config.SeparationWeight, automaticSwarmWeight),
+		Alignment:  resolveWeight(config.AlignmentWeight, automaticSwarmWeight),
+		Cohesion:   resolveWeight(config.CohesionWeight, automaticSwarmWeight),
+		Food:       resolveWeight(config.FoodWeight, 2*unifrnd(0, 1, rng)),
+		Enemy:      resolveWeight(config.EnemyWeight, automaticSwarmWeight),
+		Radius:     neighborhoodRadius(config, iteration, maxIterations),
+		MaxStep:    span * config.MaxStepRatio,
+	}
 }
 
 // archivePosition returns a solution's position, or nil for a nil solution. A

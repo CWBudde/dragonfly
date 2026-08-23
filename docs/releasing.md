@@ -7,6 +7,10 @@ declared stable.
 Go modules are published from repository tags rather than uploaded anywhere. Pushing a tag and
 fetching it once through the public proxy is the whole publication step.
 
+Use only `github.com/CWBudde/dragonfly`, with the lowercase repository component. The
+capitalized `github.com/CWBudde/Dragonfly@v0.1.0` path was cached before the repository rename;
+module paths are case-sensitive, so it is a distinct obsolete module and receives no updates.
+
 ## Version policy
 
 - Increment **PATCH** for backward-compatible fixes and documentation changes.
@@ -54,40 +58,40 @@ Beyond the obvious signature changes, three things specific to this library:
 ## What `just release-check` verifies
 
 ```sh
-just release-check 0.1.0
+just release-check 0.2.0
 ```
 
 - the argument is a valid semantic version
-- `CHANGELOG.md` contains a `## [0.1.0]` section
+- `CHANGELOG.md` contains the matching version section
 - `LICENSE` and `README.md` are non-empty
 - `go list -m` reports exactly `github.com/CWBudde/dragonfly`
-- `just verify` — `go mod verify`
-- `just check-formatted` — `treefmt --fail-on-change`
-- `just check-tidy` — `go mod tidy -diff`
-- `just lint` — `golangci-lint run --config ./.golangci.toml`
 - `go vet ./...`
-- `go test -timeout 20m ./...` — the full suite, not the `-short` one
+- exact pinned formatter, linter and scanner versions
+- verified and tidy modules, formatting and golangci-lint
+- the short race suite and the complete suite through the 80% coverage gate
+- every nested example module and both native and js/wasm demo builds
+- Nancy's production dependency audit and govulncheck's reachable-code scan
 
-`just release version=0.1.0` runs all of that, then additionally requires a clean worktree and
+`just release version=0.2.0` runs all of that, then additionally requires a clean worktree and
 an unused tag name before creating the annotated tag. It does not push.
 
-## Release gates beyond the checklist
+## Security gate details
 
-Phase 10 of [PLAN.md](../PLAN.md) adds two the tooling does not enforce:
+`just release-check`, `just ci` and `just ci-race` all require `just security` to pass. It is
+two scans, and they cover different things:
 
-- **80%+ statement coverage.** `just test` writes `coverage.out` and `coverage.html`.
-- **`just security` clean.** This is two scans, and they cover different things.
-  `just audit` pipes `go list -json -deps ./...` into `nancy sleuth`, which sees only the
+- **`just audit`.** This pipes `go list -json -deps ./...` into `nancy sleuth`, which sees only the
   production build — and because the library is stdlib-only, that build has no third-party
   packages at all, so nancy reports `Audited Dependencies: 0`. That is the intended state
   rather than a passing scan, and the recipe exists to catch the first real dependency that
-  is ever added. `just vuln` runs `govulncheck ./...`, which does cover the test-only
+  is ever added.
+- **`just vuln`.** This runs `govulncheck ./...`, which does cover the test-only
   dependency tree and reports by reachability, so it is the one that would actually find
   something today.
 
-  Note that `govulncheck` also reports vulnerabilities in the Go toolchain the scan runs on.
-  Those are a property of the local Go installation, not of this module; check whether a
-  finding names `stdlib` or `os@go1.x` before treating it as a release blocker.
+Note that `govulncheck` also reports vulnerabilities in the Go toolchain the scan runs on.
+Those are a property of the local Go installation, not of this module; check whether a finding
+names `stdlib` or `os@go1.x` before treating it as a release blocker.
 
 Before tagging a release, also re-measure [performance.md](performance.md) on the release
 machine if any of its numbers are quoted as thresholds anywhere, and re-run the long regression
@@ -104,11 +108,16 @@ and quietly made the optimizer worse.
 
 `.github/workflows/release.yml` runs for SemVer-shaped tags and can also be started manually. It
 validates the version, the module metadata, the licence and the changelog, then runs static
-analysis and the complete test suite. It does **not** create tags or GitHub releases; those stay
-deliberate maintainer actions.
+analysis, race and full coverage tests, examples/WASM and security under Go 1.26. It does
+**not** create tags or GitHub releases; those stay deliberate maintainer actions.
 
-`.github/workflows/test.yml` is the ordinary CI: format, lint, test on a Go 1.23 and 1.24
-matrix, and benchmarks.
+`.github/workflows/test.yml` is the ordinary CI: format, lint, test on a Go 1.23 and 1.26
+matrix, examples/WASM, security and benchmarks. `.github/workflows/security.yml` reruns the
+pinned Nancy 2.1.0 and govulncheck 1.1.4 scans weekly and on manual dispatch under Go 1.26.
+
+The rest of the pinned toolchain is treefmt 2.5.0, golangci-lint 2.11.4, gofumpt 0.11.0,
+gci 0.14.0, shfmt 3.13.1, Taplo 0.10.0, Prettier 3.9.6 and ShellCheck 0.11.0. `just
+check-tools` verifies the installed versions instead of accepting any same-named binary.
 
 ## Changelog conventions
 

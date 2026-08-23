@@ -9,15 +9,29 @@ result, err := dragonfly.OptimizeContext(ctx, config, options...)
 ```
 
 `Optimize` and `OptimizeBinary` are the same calls with `context.Background()` and no options.
-`OptimizeMultiObjective` takes a context but **no** run options: observers, logging and initial
-populations are not wired into the multi-objective path. It does honour the shared `Config`
-block — `Constraints`, `Convergence` and `EnableParallel` all apply, with the two exceptions
+`OptimizeMultiObjective` also accepts run options; archive observers apply there, while initial
+populations remain a single-objective option. It honours the shared `Config` block —
+`Constraints`, `Convergence` and `EnableParallel` all apply, with the two exceptions
 [MODA documents](../algorithms/moda.md): `Convergence.TargetCost` and
 `ConstraintHandlingPenalty` are rejected rather than ignored.
 
+## Paper and MATLAB generation order
+
+Paper mode evaluates initialization, then moves and evaluates once per completed iteration.
+MATLAB mode follows all three reference implementations: compute the generation schedules,
+evaluate the current population, update incumbents or the archive, select any MODA food/enemy,
+build the movement, then move. The final moved population becomes the hypothetical next
+generation and is intentionally not evaluated when the loop ends.
+
+For continuous DA/MODA the MATLAB per-dragonfly boundary order is primitives → pre-move
+wrap/step reset → movement → non-finite sanitization → post-move clamp. This fixed reference
+rule overrides `BoundaryMethod`. BDA has no continuous boundary repair.
+
 ## Cancellation
 
-Cancellation is checked at the top of every iteration.
+Cancellation is checked at iteration boundaries and during objective batches. MATLAB mode also
+checks immediately after its final movement, before publishing observers or accepting early
+termination.
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -91,8 +105,13 @@ Sphere over 100 iterations with `NPop` 40: 24,927 allocations without any observ
 a progress observer, 33,227 with a population observer — about 83 extra allocations and 22 KB
 per iteration. No copying happens unless an observer is registered.
 
-`Worst` is carried because every step of the algorithm is computed against the enemy, so a
-snapshot without it cannot explain a move. It has no Mayfly counterpart.
+`Worst` is the movement enemy, so a snapshot can explain the step that generation took. In
+paper mode it is also the actual worst evaluated candidate. MATLAB-compatible DA follows
+`DA.m`'s strict-interior guard for this movement reference, so it may differ from
+`Result.Worst` and may retain its initial sentinel when no evaluated point is strictly inside
+the bounds. The snapshot's swarm is copied before MATLAB movement and therefore contains only
+evaluated positions with matching costs, even though notification happens after the movement.
+It has no Mayfly counterpart.
 
 Population observers run after progress observers within the same iteration.
 
@@ -251,11 +270,15 @@ type Result struct {
 solution is `GlobalBest.Position`. It is non-increasing for unconstrained optimization; under
 constraints a raw cost may rise when feasibility or a lower violation takes priority.
 
-`FuncEvalCount` counts every call to `ObjectiveFunc`, including the ones made while initializing
-the swarm, so a complete run of `T` iterations reports `NPop × (T + 1)`.
+`FuncEvalCount` counts every call to `ObjectiveFunc`. Paper mode evaluates initialization and
+each moved population, so a complete `T`-iteration run reports `NPop × (T + 1)`. MATLAB mode
+evaluates at the start of each generation and leaves the final moved population unevaluated, so
+it reports `NPop × T`. In both modes every candidate represented by `GlobalBest`, `Worst`, the
+convergence curve or an archive was evaluated.
 
-`Worst` is the enemy: the worst position seen during the run, which the enemy term of every step
-was computed against. It is reported for inspection.
+`Worst` is always the actual worst evaluated candidate. In MATLAB-compatible DA, the enemy used
+for movement is maintained separately with `DA.m`'s strict-interior condition and is exposed as
+`PopulationSnapshot.Worst`; do not assume the two values are identical in that mode.
 
 ## Convergence export
 

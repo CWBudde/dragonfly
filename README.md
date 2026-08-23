@@ -40,6 +40,10 @@ well-tuned optimizer could.
 go get github.com/CWBudde/dragonfly
 ```
 
+Use the lowercase repository component exactly as shown. The obsolete
+`github.com/CWBudde/Dragonfly@v0.1.0` path was cached by the Go module proxy before the
+repository rename; it is a distinct, unsupported module path and will receive no updates.
+
 ### Basic usage
 
 ```go
@@ -347,10 +351,16 @@ just bench           # go test -bench=. -benchmem ./...
 just fmt             # treefmt (gofumpt -> gci, prettier, taplo, shfmt)
 just lint            # golangci-lint run --config ./.golangci.toml
 just check           # check-formatted + check-tidy + lint + test
-just ci              # verify + check
+just ci              # quality + coverage + examples/WASM + security
+just ci-race         # the same plus the short race suite
+just security        # pinned Nancy and govulncheck scans
 just profile-cpu     # CPU profile of BenchmarkOptimizeBaseline
 just profile-mem     # memory profile of the same benchmark
 ```
+
+CI tests Go 1.23 and 1.26. Formatter/linter/scanner versions are pinned and verified by the
+Just recipes; release validation includes race, 80% coverage, examples/WASM and security, and a
+separate Go 1.26 security workflow runs weekly and on demand.
 
 Or with plain Go:
 
@@ -399,23 +409,37 @@ legacy MOPSO archive policies by name. Three constants deserve a plain provenanc
 | MODA's `β = 4, γ = 2, δ = 2, NGrid = 10`      | **Legacy extension only.** These are not `MODA.m` values. They remain available through `ArchivePolicyMOPSOGrid`; paper mode uses `1/N` and `N`, while MATLAB mode uses objective-space density ranking. |
 | `ArchiveSize = 100` and BDA's `±6` step clamp | **Verified.** Both occur in the official `MODA.m` / `BDA.m` packages.                                                                                                                                    |
 
-### Deviations from the reference MATLAB
+MATLAB-compatible MODA also uses its own reference schedule: inertia decreases from `0.9` to
+`0.2`, automatic separation/alignment/cohesion/enemy weights follow `mc` directly, and only
+the automatic food weight draws the `2·rand` factor. Explicitly pinned weights remain library
+extensions and still win over their automatic values.
 
-Each is deliberate, and each is commented at the point in the source where it happens:
+### Paper and MATLAB lifecycle contracts
 
-1. **Boundary repair runs after the position update, not before.** `DA.m` repairs a dragonfly
-   at the top of its per-dragonfly block, so the swarm it computes S, A and C against is partly
-   repaired and partly not, and the positions left in the population when the loop ends are the
-   unrepaired ones. This implementation repairs immediately after the position update instead.
-   The repair still happens exactly once per dragonfly per iteration, so the dynamics are
-   otherwise the same — but every position handed to the objective function, and every position
-   in the returned `Result`, is inside `[LowerBound, UpperBound]`.
-   (`parallel_phases.go`, `prepareSwarmStep`)
-2. **Binary mode ignores `BoundaryMethod` and the Lévy branch.** A bit cannot leave `[0,1]`,
+Paper mode evaluates the initialized swarm and every moved swarm, so a complete `NPop = N`,
+`MaxIterations = T` run makes `N·(T+1)` objective calls. MATLAB mode instead reproduces the
+reference evaluate-before-move loop: each generation evaluates its current population, updates
+the incumbents or archive, moves once, and leaves the final moved population unevaluated. It
+therefore makes `N·T` calls. Returned best/worst values and Pareto solutions always come from
+evaluated candidates.
+
+For continuous DA and MODA, `FidelityMATLAB` overrides `BoundaryMethod`. Its exact per-dragonfly
+order is: compute primitives from the current swarm, apply the reference pre-move wrap and step
+reset, move using the already-computed primitives, sanitize non-finite safety cases, then clamp
+the moved position to the box. The final positions are repaired, not left out of bounds.
+
+MATLAB-compatible DA keeps two worst references. Movement follows `DA.m` and only updates its
+enemy from strictly interior evaluated positions; `Result.Worst` independently reports the
+actual worst evaluated candidate. A population snapshot exposes the movement enemy, while its
+swarm copy is the evaluated pre-move population so every cost still describes its position.
+
+Other deliberate differences and extensions are:
+
+1. **Binary mode ignores `BoundaryMethod` and the Lévy branch.** A bit cannot leave `[0,1]`,
    and BDA uses every other dragonfly as a neighbor with one unconditional five-factor step.
    V-shaped transfers complement the current bit; S-shaped transfers assign the sampled bit.
    (`binary.go`, `OptimizeBinaryContext`)
-3. **`selector.go` does not port Mayfly's gradient-magnitude landscape heuristic.** That
+2. **`selector.go` does not port Mayfly's gradient-magnitude landscape heuristic.** That
    heuristic is scale-dependent: it called Sphere over `[-5, 5]` rugged and Sphere over
    `[-1, 1]` smooth, which says more about the bounds than about the function. It is replaced
    by two scale-free statistics — direction changes per line scan, and total variation in units
@@ -450,17 +474,12 @@ enforces it.
 
 ## Status
 
-`v0.1.0`. Phases 1–10 of [PLAN.md](PLAN.md) have landed: the three variants, the framework
-layer, deterministic parallelism, constraints, lifecycle and monitoring, the BDD feature
-files, the regression baselines, the benchmark suite, the documentation and the release
-preparation.
+`v0.1.0` is the latest published release. The v0.2.0 correctness/fidelity remediation and
+local release preparation are underway; they are not released yet.
 
 **PLAN.md is the source of truth for progress** — read its checkboxes rather than this
-paragraph, and read the `## [0.1.0]` entry in [CHANGELOG.md](CHANGELOG.md) for the release's
-own list of known limitations. The two that most often surprise a reader: `Levy(nil)` panics
-and empty-input handling is inconsistent across the benchmark suite (neither affects a real
-optimization, where every position has `ProblemSize >= 1` components), and MODA's hypercube
-parameters are this implementation's choices rather than values read off the author's MATLAB.
+paragraph, and read the `## [0.1.0]` entry in [CHANGELOG.md](CHANGELOG.md) for that release's
+own known limitations. Unreleased behavior described here belongs to the v0.2.0 preparation.
 
 ## Contributing
 

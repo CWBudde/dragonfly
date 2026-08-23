@@ -489,6 +489,156 @@ func TestOptimizeFuncEvalCount(t *testing.T) {
 	}
 }
 
+func TestFidelityModeControlsEvaluationLifecycle(t *testing.T) {
+	tests := []struct {
+		name FidelityMode
+		want int
+	}{
+		{FidelityPaper, 4 * (3 + 1)},
+		{FidelityMATLAB, 4 * 3},
+	}
+
+	for _, test := range tests {
+		config := newTestConfig(Sphere, 2, -1, 1, 41)
+		config.FidelityMode = test.name
+		config.NPop = 4
+		config.MaxIterations = 3
+
+		result, err := Optimize(config)
+		if err != nil {
+			t.Fatalf("%s: Optimize() error = %v", test.name, err)
+		}
+
+		if result.FuncEvalCount != test.want {
+			t.Errorf("%s: FuncEvalCount = %d, want %d", test.name, result.FuncEvalCount, test.want)
+		}
+	}
+}
+
+func TestFidelityModeControlsEarlyStopEvaluationLifecycle(t *testing.T) {
+	target := 1e300
+	tests := []struct {
+		name FidelityMode
+		want int
+	}{
+		{FidelityPaper, 8},
+		{FidelityMATLAB, 4},
+	}
+
+	for _, test := range tests {
+		config := newTestConfig(Sphere, 2, -1, 1, 42)
+		config.FidelityMode = test.name
+		config.NPop = 4
+		config.MaxIterations = 5
+		config.Convergence = &ConvergenceConfig{TargetCost: &target, MinIterations: 1}
+
+		result, err := Optimize(config)
+		if err != nil {
+			t.Fatalf("%s: Optimize() error = %v", test.name, err)
+		}
+
+		if result.IterationCount != 1 || result.TerminationReason != TerminationTargetCost {
+			t.Errorf("%s: termination = (%d, %q), want (1, %q)",
+				test.name, result.IterationCount, result.TerminationReason, TerminationTargetCost)
+		}
+
+		if result.FuncEvalCount != test.want {
+			t.Errorf("%s: FuncEvalCount = %d, want %d", test.name, result.FuncEvalCount, test.want)
+		}
+	}
+}
+
+func TestMATLABPopulationSnapshotContainsEvaluatedPositions(t *testing.T) {
+	config := newTestConfig(Sphere, 1, 0, 1, 43)
+	config.FidelityMode = FidelityMATLAB
+	config.NPop = 2
+	config.MaxIterations = 1
+
+	var snapshot PopulationSnapshot
+
+	result, err := OptimizeContext(context.Background(), config,
+		WithInitialPopulation([][]float64{{0.25}, {0.75}}),
+		WithPopulationObserver(func(observed PopulationSnapshot) { snapshot = observed }),
+	)
+	if err != nil {
+		t.Fatalf("OptimizeContext() error = %v", err)
+	}
+
+	if snapshot.EvaluationCount != config.NPop {
+		t.Fatalf("snapshot EvaluationCount = %d, want %d", snapshot.EvaluationCount, config.NPop)
+	}
+
+	for i := range snapshot.Swarm {
+		fly := snapshot.Swarm[i]
+		if fly.Cost != Sphere(fly.Position) {
+			t.Errorf("swarm[%d] cost %v does not describe evaluated position %v", i, fly.Cost, fly.Position)
+		}
+	}
+
+	if result.FuncEvalCount != config.NPop {
+		t.Errorf("FuncEvalCount = %d, want final moved swarm to remain unevaluated at %d calls",
+			result.FuncEvalCount, config.NPop)
+	}
+}
+
+func TestMATLABMovementEnemyUsesOnlyStrictInteriorPositions(t *testing.T) {
+	config := newTestConfig(func(x []float64) float64 {
+		if x[0] == 0 {
+			return 100
+		}
+
+		return 10
+	}, 1, 0, 1, 44)
+	config.FidelityMode = FidelityMATLAB
+	config.NPop = 2
+	config.MaxIterations = 1
+
+	var snapshot PopulationSnapshot
+
+	result, err := OptimizeContext(context.Background(), config,
+		WithInitialPopulation([][]float64{{0}, {0.5}}),
+		WithPopulationObserver(func(observed PopulationSnapshot) { snapshot = observed }),
+	)
+	if err != nil {
+		t.Fatalf("OptimizeContext() error = %v", err)
+	}
+
+	if result.Worst.Cost != 100 || result.Worst.Position[0] != 0 {
+		t.Errorf("Result.Worst = %+v, want actual evaluated worst {100, [0]}", result.Worst)
+	}
+
+	if snapshot.Worst.Cost != 10 || snapshot.Worst.Position[0] != 0.5 {
+		t.Errorf("snapshot movement enemy = %+v, want strict-interior candidate {10, [0.5]}", snapshot.Worst)
+	}
+}
+
+func TestMATLABBoundaryOrderIgnoresConfiguredMethod(t *testing.T) {
+	config := NewDefaultConfig()
+	config.FidelityMode = FidelityMATLAB
+	config.BoundaryMethod = BoundaryReflect
+	config.LowerBound = 0
+	config.UpperBound = 1
+	config.UseLevyWalk = false
+
+	state := &runState{
+		swarm:         []Dragonfly{{Position: []float64{2}, Step: []float64{0.25}}},
+		food:          Best{Position: []float64{2}},
+		enemy:         Best{Position: []float64{0}},
+		movementEnemy: Best{Position: []float64{0}},
+	}
+	weights := weightSchedule{Inertia: 1, Radius: 1, MaxStep: 10}
+	rng := rand.New(rand.NewSource(45))
+	wantRNG := rand.New(rand.NewSource(45))
+	want := wantRNG.Float64()
+
+	prepareSwarmStep(state, 0, config, weights, rng)
+
+	if state.swarm[0].Position[0] != want || state.swarm[0].Step[0] != want {
+		t.Errorf("MATLAB pre-wrap then move = (position %v, step %v), want (%v, %v)",
+			state.swarm[0].Position[0], state.swarm[0].Step[0], want, want)
+	}
+}
+
 // TestFoodInRadiusIncludesZeroDistance is the regression test for the trap that
 // makes foodInRadius a separate helper from withinRadius: a dragonfly sitting
 // exactly on the food source must see the food as in range.

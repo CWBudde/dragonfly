@@ -198,7 +198,7 @@ func setupBinaryRun(ctx context.Context, config *Config, options []RunOption) (*
 	rng, seed, seedKnown := resolveRandomSource(config)
 
 	state := initializeBinaryRun(config, resolved, rng)
-	if !hasFiniteObjective(state.swarm) {
+	if effectiveFidelityMode(config) != FidelityMATLAB && !hasFiniteObjective(state.swarm) {
 		return nil, ErrNoFiniteObjective
 	}
 
@@ -307,6 +307,25 @@ func runBinaryLoop(ctx context.Context, config *Config, run *binaryRun) (*Result
 			return nil, ctxErr
 		}
 
+		if effectiveFidelityMode(config) == FidelityMATLAB {
+			stopReason, stop, iterationErr := runMATLABBinaryIteration(
+				ctx, config, run, t+1, &curve,
+			)
+			if iterationErr != nil {
+				return nil, iterationErr
+			}
+
+			completed = t + 1
+
+			if stop {
+				reason = stopReason
+
+				break
+			}
+
+			continue
+		}
+
 		weights := computeWeights(config, t+1, config.MaxIterations, run.rng)
 
 		for i := range state.swarm {
@@ -350,6 +369,53 @@ func runBinaryLoop(ctx context.Context, config *Config, run *binaryRun) (*Result
 	return result, nil
 }
 
+// runMATLABBinaryIteration follows BDA.m's evaluate-before-move lifecycle. It
+// preserves the evaluated swarm for observers, completes the bit movement, and
+// only then checks cancellation and the library's early-stopping extensions.
+func runMATLABBinaryIteration(
+	ctx context.Context,
+	config *Config,
+	run *binaryRun,
+	iteration int,
+	curve *[]float64,
+) (TerminationReason, bool, error) {
+	state := run.state
+	weights := computeWeights(config, iteration, config.MaxIterations, run.rng)
+
+	evaluationErr := state.evaluateBinary(ctx)
+	if evaluationErr != nil {
+		return "", false, evaluationErr
+	}
+
+	if !hasFiniteObjective(state.swarm) {
+		return "", false, ErrNoFiniteObjective
+	}
+
+	var evaluatedSwarm []Dragonfly
+	if run.options.populationObserver != nil {
+		evaluatedSwarm = cloneDragonflies(state.swarm)
+	}
+
+	*curve = append(*curve, state.food.Cost)
+	for i := range state.swarm {
+		moveBinaryDragonfly(state, i, weights, run.transferName, run.transfer, run.rng)
+	}
+
+	contextErr := ctx.Err()
+	if contextErr != nil {
+		return "", false, contextErr
+	}
+
+	notifyProgress(run.options.observer, iteration, state.funcEvals, state.food)
+	notifyPopulation(run.options.populationObserver, iteration, state.funcEvals,
+		state.food, state.enemy, evaluatedSwarm)
+	logIterationCompleted(ctx, run.options.logger, iteration, state.funcEvals, state.food)
+
+	reason, stop := run.tracker.observe(iteration, state.food)
+
+	return reason, stop, nil
+}
+
 // evaluateBinary scores the binary swarm and updates the food source and the
 // enemy, through the worker pool when the run is parallel and inline when it is
 // not. It is the binary counterpart of runState.evaluate.
@@ -386,7 +452,8 @@ func (state *runState) evaluateBinary(ctx context.Context) error {
 	return nil
 }
 
-// initializeBinaryRun builds and evaluates the starting swarm.
+// initializeBinaryRun builds the starting swarm. Paper mode evaluates it here;
+// MATLAB mode leaves it unscored for the first evaluate-before-move iteration.
 //
 // Positions are fair coin flips rather than uniform draws from [0,1]: the
 // binary variant's position space is the corners of the unit cube, and a
@@ -426,9 +493,15 @@ func initializeBinaryRun(config *Config, options runOptions, rng *rand.Rand) *ru
 			Position: make([]float64, config.ProblemSize),
 			Cost:     math.Inf(-1),
 		},
+		movementEnemy: Best{
+			Position: make([]float64, config.ProblemSize),
+			Cost:     math.Inf(-1),
+		},
 	}
 
-	state.evaluateSwarm()
+	if effectiveFidelityMode(config) != FidelityMATLAB {
+		state.evaluateSwarm()
+	}
 
 	return state
 }

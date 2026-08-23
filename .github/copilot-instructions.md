@@ -4,15 +4,18 @@
 
 Go implementation of Seyedali Mirjalili's Dragonfly Algorithm (DA), a swarm-intelligence metaheuristic derived from the static and dynamic swarming behaviour of dragonflies. It covers all three variants of the original paper: **DA** (single-objective continuous), **BDA** (binary/discrete, via transfer functions), and **MODA** (multi-objective, via a hypercube-partitioned Pareto archive).
 
-Module `github.com/CWBudde/dragonfly`, package `dragonfly`, flat at the repository root, Go 1.23.3. Standard library only; the sole planned direct dependency is `github.com/cucumber/godog`, test-only.
+Module `github.com/CWBudde/dragonfly`, package `dragonfly`, flat at the repository root, Go 1.23.3. Standard library only in production; the sole direct dependency is `github.com/cucumber/godog`, test-only.
 
-**There is no Go source in the repository yet** — only the scaffold (tooling, workflows, docs skeleton). `PLAN.md` is the specification and the progress tracker; read it before writing code, and take all algorithm facts from its §1 rather than from recall.
+`v0.1.0` is published; the Phase 11 correctness/fidelity remediation and local `v0.2.0`
+release preparation are underway. `PLAN.md` is the source of truth for progress. Use only the
+lowercase repository component: proxy-cached `github.com/CWBudde/Dragonfly@v0.1.0` is an
+obsolete, distinct module path that receives no updates.
 
 ## Core Architecture
 
 ### Main Components
 
-Planned file layout (`PLAN.md` §2), one concern per file:
+Implemented file layout (`PLAN.md` §2), one concern per file:
 
 - **`dragonfly.go`**: package doc, `Optimize`, `OptimizeContext` — the main entry points.
 - **`types.go`**: `Config`, `Dragonfly`, `Best`, `Result`, `ConvergenceConfig`, `TerminationReason`, `BoundaryMethod`, the `WeightAuto` sentinel.
@@ -40,7 +43,8 @@ config.ProblemSize = 30
 
 **Explicit RNG threading**: every stochastic helper takes `rng *rand.Rand` as its last parameter.
 
-**Paper fidelity first, ergonomics second**: where the reference MATLAB (`DA.m`, `BDA.m`, `MODA.m`) and a cleaner formulation disagree, implement the paper and expose the alternative behind a `Config` field.
+**Named fidelity, never a hybrid**: paper behavior is the default. `FidelityMATLAB` reproduces
+the reference MATLAB (`DA.m`, `BDA.m`, `MODA.m`) lifecycle and operators when they differ.
 
 ## Development Workflows
 
@@ -53,6 +57,10 @@ just bench            # benchmarks with -benchmem
 ```
 
 Formatting is treefmt (gofumpt → gci for Go, prettier for md/json/yaml, taplo for toml, shfmt for shell). Linting is golangci-lint v2 against **`.golangci.toml`** — the config is TOML, not `.golangci.yml`.
+
+Exact tool versions live in `justfile` and are validated. CI tests Go 1.23 and 1.26; `just ci`
+and release validation include coverage, examples/WASM and pinned Nancy/govulncheck security
+scans, with a separate weekly/manual Go 1.26 security workflow.
 
 Examples live in `examples/`, each subdirectory its own module with a local `replace` directive.
 
@@ -75,9 +83,11 @@ Two details that are easy to get wrong and must both carry unit tests:
 - **The enemy term is a sum, not a difference.** `X⁻ + X_i` is what the paper and the reference code use. A sign "fix" here is a bug.
 - **The neighbourhood test is per-dimension, not Euclidean.** The reference computes a component-wise distance vector and requires `all(dist <= r)`; self-neighbouring is excluded via `all(dist != 0)`. A Euclidean shortcut changes swarm dynamics and silently degrades convergence.
 
-### Two-branch step update
+### Paper and MATLAB step updates
 
-The single most important fidelity detail — the reference branches on whether the food source is inside the radius:
+Paper mode uses the full five-factor step whenever a neighbor exists, independently zeroing
+food and enemy when out of range; isolation takes the Lévy walk. MATLAB mode uses the
+reference food-distance branch:
 
 ```
 if any(dist2Food > r):                 # food out of range → local swarming only
@@ -108,6 +118,10 @@ r  = (ub - lb)/4 + (ub - lb)·(t/T)·2       neighbourhood radius, growing
 
 Assert these as properties in `weights_test.go` (w monotonically decreasing, mc zero at the halfway point, e exactly zero past 3T/4) rather than inferring them from optimization outcomes.
 
+MATLAB-compatible MODA is the schedule exception: inertia decreases `0.9 → 0.2`, automatic
+S/A/C/E equal `mc` directly (including the reference late-run adjustment), and only automatic
+food uses `2·rand`. Explicit pinned weights still override automatic values.
+
 ### Boundary handling
 
 DA uses **wrap-with-step-reset**, not Mayfly's clamp:
@@ -119,9 +133,20 @@ if x_j < lb_j { x_j = ub_j ; Δx_j = rand() }
 
 Selectable via `Config.BoundaryMethod`: `"wrap"` (default, paper behaviour), `"clamp"` (Mayfly's `maxVec`/`minVec` idiom), `"reflect"`.
 
+Those are paper-mode policies. Continuous `FidelityMATLAB` ignores `BoundaryMethod` and uses
+the exact sequence primitives → pre-wrap/reset → move → sanitize → post-clamp. Its final moved
+swarm is repaired but deliberately unevaluated.
+
+Paper mode evaluates initialization plus every moved population (`NPop·(T+1)`). MATLAB mode
+evaluates before each move (`NPop·T`) and leaves the final move unevaluated. MATLAB DA updates
+its movement enemy only from strictly interior candidates; `Result.Worst` separately remains
+the actual worst evaluated candidate, and population snapshots expose the movement enemy with
+the evaluated pre-move swarm.
+
 ### Randomization and determinism
 
-- `Config.Rand` is the injection point. When nil, `OptimizeContext` creates a generator, writes it back to the config, and records the seed in `Result.Seed`.
+- Prefer `Config.Seed` when a reported reproducible seed is required. A directly supplied
+  `Config.Rand` is honored but cannot expose its original seed; supplying both is rejected.
 - **All RNG draws happen on the calling goroutine during the `prepare*` phase**; worker goroutines only evaluate the objective function. A seeded run must be bit-identical with `EnableParallel` on or off.
 - DA's prepare phase is two sequential passes: first `r`, the weights, food and enemy; then, per dragonfly, the neighbour scan and ΔX. The neighbour scan is O(n²·d) and is the real hot spot — it may be parallelised precisely because it draws no random numbers.
 

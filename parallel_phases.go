@@ -67,7 +67,13 @@ func prepareSwarmStep(state *runState, index int, config *Config, weights weight
 	alignment := alignmentVector(state.swarm, index, neighbors)
 	cohesion := cohesionVector(state.swarm, index, neighbors)
 	foodInRange := referenceInRadius(fly.Position, state.food.Position, weights.Radius)
-	enemyInRange := referenceInRadius(fly.Position, state.enemy.Position, weights.Radius)
+
+	enemyReference := state.enemy
+	if effectiveFidelityMode(config) == FidelityMATLAB {
+		enemyReference = state.movementEnemy
+	}
+
+	enemyInRange := referenceInRadius(fly.Position, enemyReference.Position, weights.Radius)
 	food := make([]float64, len(fly.Position))
 
 	enemy := make([]float64, len(fly.Position))
@@ -76,11 +82,15 @@ func prepareSwarmStep(state *runState, index int, config *Config, weights weight
 	}
 
 	if enemyInRange {
-		enemy = enemyVector(fly.Position, state.enemy.Position)
+		enemy = enemyVector(fly.Position, enemyReference.Position)
 	}
 
 	switch {
 	case effectiveFidelityMode(config) == FidelityMATLAB:
+		// DA.m calculates the primitives first, then repairs the current
+		// dragonfly with wrap-and-step-reset before applying the move.
+		applyBounds(fly.Position, fly.Step, config.LowerBound, config.UpperBound,
+			BoundaryWrap, rng)
 		prepareMATLABStep(fly, config, weights, neighbors, separation, alignment, cohesion,
 			food, enemy, foodInRange, rng)
 	case len(neighbors) > 0:
@@ -93,6 +103,16 @@ func prepareSwarmStep(state *runState, index int, config *Config, weights weight
 	}
 
 	sanitizeVec(fly.Position, config.LowerBound, config.UpperBound, rng)
+
+	if effectiveFidelityMode(config) == FidelityMATLAB {
+		// The reference hard-clamps after movement. BoundaryMethod is a paper
+		// mode extension and is intentionally ignored in MATLAB mode.
+		applyBounds(fly.Position, fly.Step, config.LowerBound, config.UpperBound,
+			BoundaryClamp, rng)
+
+		return
+	}
+
 	applyBounds(fly.Position, fly.Step, config.LowerBound, config.UpperBound,
 		effectiveBoundaryMethod(config), rng)
 }

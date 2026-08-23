@@ -82,7 +82,7 @@ config.UpperBound = 5
 
 `FidelityPaper` is the default. `FidelityMATLAB` selects the reference implementation's
 operator choices where they differ, including its separation sign, one-neighbor fallback and
-food-distance branch. MODA additionally resolves an unset archive policy to
+food-distance branch, evaluate-before-move lifecycle and boundary ordering. MODA additionally resolves an unset archive policy to
 `ArchivePolicyPaperSegments` or `ArchivePolicyMATLABDensity`; `ArchivePolicyMOPSOGrid` names
 the v0.1 extension explicitly.
 
@@ -97,9 +97,11 @@ used but `SeedKnown` is false. Supplying both is rejected.
 | `NPop`          |      40 | Swarm size. Must be positive.         |
 | `MaxIterations` |    1000 | Hard iteration cap. Must be positive. |
 
-Objective evaluations total `NPop × (MaxIterations + 1)` — the extra population is the initial
-swarm, which is scored before the first iteration. A default run therefore costs 40,040
-evaluations.
+Evaluation count depends on fidelity mode. Paper mode scores the initialized swarm and each of
+the `T` moved populations: `NPop × (T + 1)`, or 40,040 calls for the defaults. MATLAB mode
+scores the current population at the start of each generation and leaves the final movement
+unevaluated: `NPop × T`, or 40,000 calls. Early stopping shortens `T` to the number of completed
+generations in the same formulas.
 
 `NPop` is the expensive one. The neighbourhood scan is `O(n²·d)`, so cost grows roughly as
 `n^1.8` in practice: 10 → 40 → 100 → 250 dragonflies cost 1.27 → 8.76 → 39.5 → 207 ms per run
@@ -160,6 +162,11 @@ has already been zero since `t = T/2`. Values below `0.5` do have an effect.
 A run of one iteration, or a nonsensical non-positive `T`, divides by one, so the schedules
 degenerate to their starting values rather than to `NaN`.
 
+These are the shared DA/BDA schedules and the paper-mode MODA schedules. MATLAB-compatible MODA
+uses the reference `MODA.m` schedule instead: `w` decreases from `0.9` to `0.2`; automatic
+`s`, `a`, `c`, and `e` equal `mc` directly (with the reference late-run adjustment); and only
+automatic `f = 2·rand`. A finite pinned weight still overrides its automatic counterpart.
+
 ## Boundary handling
 
 | Value       | Behaviour                                                                                                             |
@@ -182,8 +189,11 @@ Which one wins is problem-dependent. On a 10-dimensional Rosenbrock over `[-5, 1
 300 iterations, the three gave best costs of 114.1 (wrap), 630.4 (clamp) and 219.5 (reflect).
 Measure rather than assume.
 
-Boundary repair runs **after** the position update in this implementation, where `DA.m` runs it
-before. See the [README](../../README.md#deviations-from-the-reference-matlab) for why.
+These policies apply in paper mode. For continuous DA and MODA, `FidelityMATLAB` ignores
+`BoundaryMethod` and reproduces the reference ordering: compute primitives, pre-wrap the current
+position and redraw the violated step component, move using those already-computed primitives,
+sanitize non-finite safety cases, then hard-clamp the moved position. Thus the final moved swarm
+is repaired even though MATLAB mode deliberately leaves it unevaluated.
 
 In binary mode `BoundaryMethod` is ignored entirely: a 0/1 vector cannot leave `[0, 1]`.
 

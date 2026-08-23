@@ -379,7 +379,7 @@ knapsack-style toy problem reaches the known optimum.
 - [x] `ExportParetoCSV`, `ExportParetoJSON`
 - [x] ZDT1–ZDT3 and Schaffer test problems added to `functions.go`
 - [x] `multiobjective_test.go`
-- [ ] `examples/multiobjective/`
+- [x] `examples/multiobjective/`
 
 **Gate**: recovers the known Pareto fronts of ZDT1 and ZDT3; the archive never exceeds
 `ArchiveSize`; every archived solution is mutually non-dominated.
@@ -477,12 +477,12 @@ statistical question with a tolerance attached.
       `CWBudde/Dragonfly`, which forced an explicit `dragonfly` import alias everywhere
       (goimports requires one when the final path element and the package name differ);
       it has since been renamed to lowercase and the aliases are gone.
-- [ ] `github.com/CWBudde/Dragonfly@v0.1.0` — the capitalised path — was published to
+- [x] `github.com/CWBudde/Dragonfly@v0.1.0` — the capitalised path — was published to
       the module proxy before the rename and is cached there permanently, with its
       hashes recorded in the checksum database. Module paths are case-sensitive to the
       proxy, so that is a distinct module from the lowercase one and cannot be
-      withdrawn. Harmless, but a search may surface it: decide whether to note it in the
-      README so nobody depends on the capitalised path by accident.
+      withdrawn. Harmless, but a search may surface it. The README now identifies the
+      lowercase path as canonical and warns against depending on the cached capitalised path.
 
 ---
 
@@ -500,11 +500,15 @@ remains available only when it is named and documented as an extension.
 
 ### 11.1 Canonical behavior and public contracts
 
-- [ ] Add `FidelityMode` with paper-default and MATLAB-compatible values; isolate the
+- [x] Add `FidelityMode` with paper-default and MATLAB-compatible values; isolate the
       separation sign, one-neighbour fallback, food-distance branching, schedule, boundary,
       initialization, and evaluation-budget differences behind that explicit policy.
-      **Progress:** the public mode and operator/init/schedule differences are implemented;
-      exact MATLAB boundary ordering and evaluation-budget lifecycle remain open.
+      The MATLAB path now follows the reference evaluate-before-move lifecycle in DA, BDA and
+      MODA, consumes `NPop × iterations` objective evaluations, leaves the final movement
+      unevaluated, preserves evaluated observer snapshots, uses the strict-interior DA movement
+      enemy, and applies pre-move wrap/reset followed by post-move hard clamping. Its reference
+      boundary order intentionally takes precedence over `BoundaryMethod`; paper mode retains
+      the configurable boundary extension and evaluate-after-move lifecycle.
 - [x] Add named MODA archive policies for the paper's segment probabilities, MATLAB's
       objective-span/20 density ranking, and the existing MOPSO-style grid. Keep the current
       `4/2/2`, `NGrid = 10` behavior only as an explicitly selected extension.
@@ -573,10 +577,11 @@ errors, not tuning disagreements.
       export through an atomic same-directory temporary file.
 - [x] Reject MODA in the single-objective builder and unsupported discrete multi-objective
       recommendations rather than returning unusable configurations.
-- [ ] Enforce the 80% coverage gate, pinned lint/tool versions, nested example and WASM
+- [x] Enforce the 80% coverage gate, pinned lint/tool versions, nested example and WASM
       builds, race tests, and security checks in CI.
-      **Progress:** coverage, golangci-lint pinning, the Go 1.23/1.26 matrix, race tests and
-      nested example/WASM builds are wired; security scanning is not yet a CI job.
+      Coverage, all formatter/linter/security tool versions, the Go 1.23/1.26 matrix, race
+      tests and nested example/WASM builds are enforced. Security scanning runs in ordinary CI
+      and in a separate weekly/manual workflow with pinned Nancy and `govulncheck` versions.
 
 **Rationale**: A forgiving comparison must not turn failed runs into invented significance,
 and an exporter must not destroy the previous report before discovering that encoding failed.
@@ -586,17 +591,27 @@ and an exporter must not destroy the previous report before discovering that enc
 - [x] Add paper-mode and MATLAB-mode state-transition fixtures for all three variants,
       sequential/parallel bit-identity tests, hostile numeric/cancellation cases, and archive
       invariant checks for every mutation.
-- [ ] Re-run the multi-seed regression and 30-dimensional ZDT studies after correction;
+- [x] Re-run the multi-seed regression and 30-dimensional ZDT studies after correction;
       change degradation tolerances only from measured results, never merely to pass CI.
+      The 15-seed DA/BDA regression suite passed every baseline without changing a tolerance.
+      The paper-default five-dimensional MODA gate passed 14/15 ZDT1 seeds and 12/15 ZDT3
+      seeds. The 30-dimensional, five-seed ZDT1–ZDT3 matrix found that none of the paper,
+      MATLAB or named legacy profiles met the strict recovery bar; the valid non-dominated
+      archives remain materially off-front. A separate 240-run study remeasured all eight BDA
+      transfer functions in both fidelity modes. Raw deterministic CSV, generated summaries,
+      exact configurations, source hashes and evaluation counts are retained under
+      `docs/measurements/`.
 - [ ] Update the algorithm/API/research documentation and `CHANGELOG.md`, then release the
       corrected contracts and changed stochastic trajectories as `v0.2.0` after
       `just check-race` and the release gates pass.
-      **Progress:** the directly affected documentation and changelog are updated; release
-      preparation intentionally remains open.
+      **Progress:** the documentation, changelog, source-hashed studies and local v0.2.0
+      release content are complete. Tagging, pushing and module-proxy publication intentionally
+      remain open external release actions.
 
 **Audit baseline**: before Phase 11, `go test ./...`, `go test -short -race ./...`, and
 `go vet ./...` pass. Local lint could not start because the installed golangci-lint does not
-recognize the configured linter, which is itself why the toolchain must be pinned.
+recognize the configured linter, which is itself why the toolchain must be pinned. Phase 11
+resolved that gap with exact version checks; the pinned linter reports zero issues.
 
 ---
 
@@ -636,7 +651,12 @@ recognize the configured linter, which is itself why the toolchain must be pinne
       redistribute along the archive it has but cannot lower `g`. Recorded in the docs; no
       parity with the paper's 30-dimensional results is claimed, and the hypercube
       parameters were deliberately not tuned during the investigation since they are still
-      unverified against `MODA.m`.
+      unverified against `MODA.m`. **Remeasured 2026-08-24 after the fidelity correction:**
+      the five-dimensional paper gate passes 14/15 ZDT1 and 12/15 ZDT3 seeds, but at 30
+      dimensions all nine combinations of ZDT1–ZDT3 and paper/MATLAB/legacy profiles score
+      0/5 against the strict GD/IGD/hypervolume recovery bar. Median best `g` remains
+      1.825–2.804 instead of the true value 1. The source-hashed raw evidence is
+      `docs/measurements/v0.2.0-quality.csv`; no 30-dimensional parity is claimed.
 - [x] MODA honours neither `EnableParallel` nor `Config.Constraints` nor early stopping.
       All three are wired for DA and BDA only. **Resolved 2026-08-23: all three are wired,
       with two deliberate rejections.** Constraints go through `constrainedDominates`,

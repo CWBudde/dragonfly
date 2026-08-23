@@ -17,8 +17,8 @@ One paper introduces all three variants. Its reference implementations are the a
 ### Key contributions
 
 - **Two swarm-level attractors.** Where PSO has a global best, DA has a food source _and_ an
-  enemy: the best and worst positions seen so far. Both are recomputed from the population every
-  iteration.
+  enemy: the best and worst positions seen so far. MATLAB-compatible DA separately preserves
+  the reference's strictly-interior movement enemy while reporting the actual evaluated worst.
 - **Five primitives instead of three.** Reynolds' separation, alignment and cohesion, plus food
   attraction and enemy distraction. The enemy term is `X⁻ + X_i`, a sum.
 - **Static and dynamic swarming as one schedule.** The neighbourhood radius grows with the run,
@@ -122,7 +122,7 @@ the source.
 | Enemy cutoff                      | `3T/4`                        | Paper. Note that it never bites at the default, because `mc` is already zero at `T/2`.       |
 | Enemy term                        | `X⁻ + X_i`, a sum             | Paper and `DA.m`. Pinned by a hand-computed test.                                            |
 | Neighbourhood test                | per-dimension box             | `DA.m`. Pinned by a hand-computed test.                                                      |
-| Boundary rule                     | wrap, with a step redraw      | Paper default. `DA.m` effectively clamps; lifecycle repair remains a documented deviation.   |
+| Boundary rule                     | wrap, with a step redraw      | Paper default. MATLAB mode reproduces the reference pre-wrap/reset and post-move clamp.      |
 | Lévy β                            | `1.5`                         | Paper.                                                                                       |
 | Lévy σ                            | `0.6965745026`                | **Verified** against Mantegna (1994) for β = 1.5.                                            |
 | Lévy scale                        | `0.01`                        | **Verified** as the DA reference implementation's value.                                     |
@@ -130,6 +130,7 @@ the source.
 | BDA step clamp `MaxStepRatio`     | `6.0`                         | **Verified** against official `BDA.m`.                                                       |
 | MODA paper selection              | `1/N` food, `N` enemy         | Paper default, implemented by `ArchivePolicyPaperSegments`.                                  |
 | MODA MATLAB selection             | span/20 density ranking       | **Verified** against `RankingProcess.m`, exposed as `ArchivePolicyMATLABDensity`.            |
+| MODA MATLAB inertia               | `0.9 → 0.2`                   | **Verified** against `MODA.m`; automatic S/A/C/E follow `mc` directly.                       |
 | MODA MOPSO `β`, `γ`, `δ`, `NGrid` | `4`, `2`, `2`, `10`           | Legacy extension only, exposed as `ArchivePolicyMOPSOGrid`; not DA/MODA reference constants. |
 | MODA `ArchiveSize`                | `100`                         | **Verified** against official `MODA.m`.                                                      |
 
@@ -138,22 +139,31 @@ Official-source SHA-256 checksums used for this audit: `DA.zip`
 `1801dac86c3e8c68cd404904b75ae200815555ceaefccba96cb19598d97cc1c6`, and `MODA.zip`
 `81fc0096d5e552845743ebabc45d5cf81445f604dffc00d7e243b03e9cdf915f`.
 
-## Deliberate deviations from the reference MATLAB
+## MATLAB fidelity and deliberate extensions
 
-Three, each commented where it happens in the source:
+`FidelityMATLAB` follows the reference generation lifecycle: schedules, evaluation, incumbent
+or archive update, then movement. Consequently its final moved population is intentionally
+unevaluated and a full `NPop = N`, `T`-generation run makes `N·T` evaluations. Paper mode
+evaluates initialization and every movement, for `N·(T+1)`.
 
-1. **Boundary repair runs after the position update, not before** (`parallel_phases.go`).
-   `DA.m` repairs at the top of each per-dragonfly block, so the swarm the primitives are
-   computed against is partly repaired and partly not, and the positions left in the population
-   at the end of the loop are unrepaired. Repairing afterwards costs bit-fidelity with the
-   MATLAB and buys two properties worth more: every position handed to the objective is inside
-   the bounds, and so is every position in the returned `Result`. The repair still happens
-   exactly once per dragonfly per iteration.
-2. **Binary mode ignores `BoundaryMethod` and the Lévy branch** (`binary.go`). A 0/1 vector
+Continuous MATLAB movement uses this exact order: calculate primitives, pre-wrap the current
+dragonfly and reset violated step components, move using the already-calculated primitives,
+sanitize non-finite values, then hard-clamp. `BoundaryMethod` is therefore a paper-mode choice
+and is ignored by MATLAB-compatible DA/MODA. The final moved positions are repaired; earlier
+claims that they were left out of bounds described an implementation gap that is now closed.
+
+DA's reference movement enemy has a strict-interior update guard. The implementation preserves
+that reference separately while still ranking every evaluated candidate for the public
+`Result.Worst`. Population snapshots expose the movement enemy with a pre-movement copy of the
+evaluated swarm, so their costs always describe their positions.
+
+The remaining deliberate extensions are:
+
+1. **Binary mode ignores `BoundaryMethod` and the Lévy branch** (`binary.go`). A 0/1 vector
    cannot leave `[0, 1]`, and the wrap rule's step reset would overwrite the step the next
    bit-flip decision reads. A Lévy walk is a multiplicative displacement of a real-valued
    position with no binary counterpart.
-3. **The landscape classifier is scale-free** (`selector.go`). Mayfly's gradient-magnitude
+2. **The landscape classifier is scale-free** (`selector.go`). Mayfly's gradient-magnitude
    heuristic was deliberately not ported: it called Sphere over `[-5, 5]` rugged and Sphere over
    `[-1, 1]` smooth, which says more about the bounds than about the function. It is replaced by
    direction changes per line scan and total variation in units of that line's own value range,
@@ -162,9 +172,9 @@ Three, each commented where it happens in the source:
 ## Implementation notes
 
 **Fidelity first.** Where the reference code and a cleaner formulation disagree, the reference
-wins and the alternative is exposed behind a `Config` field. `BoundaryMethod` is the clearest
-example: wrapping is the paper's rule and the default, and clamping and reflecting exist because
-wrapping interacts badly with bounds that encode a real constraint.
+wins through the explicit `FidelityMATLAB` mode rather than an unnamed hybrid. `BoundaryMethod`
+selects paper-mode wrapping, clamping or reflection because wrapping interacts badly with bounds
+that encode a real constraint; MATLAB mode uses its fixed reference sequence.
 
 **Determinism is a hard requirement.** Every stochastic helper takes `rng *rand.Rand` as its
 last parameter; there is no package-level `math/rand` use. Every random draw an iteration makes

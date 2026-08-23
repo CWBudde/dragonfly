@@ -174,7 +174,7 @@ BDA takes the same `Config` as DA. What differs:
 | ---------------- | -------------- | ---------------------------------------------------------- |
 | `LowerBound`     | `0` — enforced | rejected if anything else                                  |
 | `UpperBound`     | `1` — enforced | rejected if anything else                                  |
-| `MaxStepRatio`   | `6.0`          | this implementation's choice; see above                    |
+| `MaxStepRatio`   | `6.0`          | verified against `BDA.m`; see above                        |
 | `TransferFunc`   | `""` → `v3`    | one of `v1`…`v4`, `s1`…`s4`                                |
 | `UseBinary`      | `true`         | what `NewBinaryConfig` sets and the registry dispatches on |
 | `BoundaryMethod` | ignored        | a bit cannot leave the box                                 |
@@ -201,24 +201,34 @@ what it means for DA.
 
 ## Performance
 
-OneMax, 30 bits, 300 iterations, `NPop` 30, seeds 2000–2014, median/mean/worst of 15 runs.
-Lower is better; zero means every bit was set.
+OneMax, 30 bits, 300 iterations, `NPop` 30, seeds 2000–2014. Lower is better; zero
+means every bit was set. These are v0.2 measurements of the corrected whole-swarm BDA and
+family-specific V-complement/S-assignment rules.
 
-| Transfer | Median | Mean | Worst |
-| -------- | -----: | ---: | ----: |
-| `v1`     |      0 | 0.00 |     0 |
-| `v2`     |      0 | 0.00 |     0 |
-| `v3`     |      0 | 0.00 |     0 |
-| `v4`     |      0 | 0.00 |     0 |
-| `s1`     |      1 | 1.13 |     2 |
-| `s2`     |      2 | 2.13 |     3 |
-| `s3`     |      4 | 3.80 |     4 |
-| `s4`     |      4 | 4.07 |     5 |
+| Fidelity | Transfer | Mean | Median | Optimum hits |
+| -------- | -------- | ---: | -----: | -----------: |
+| paper    | `v1`     | 0.00 |      0 |        15/15 |
+| paper    | `v2`     | 0.07 |      0 |        14/15 |
+| paper    | `v3`     | 0.00 |      0 |        15/15 |
+| paper    | `v4`     | 0.00 |      0 |        15/15 |
+| paper    | `s1`     | 0.00 |      0 |        15/15 |
+| paper    | `s2`     | 0.00 |      0 |        15/15 |
+| paper    | `s3`     | 0.33 |      0 |        11/15 |
+| paper    | `s4`     | 1.33 |      2 |         4/15 |
+| MATLAB   | `v1`     | 0.00 |      0 |        15/15 |
+| MATLAB   | `v2`     | 0.00 |      0 |        15/15 |
+| MATLAB   | `v3`     | 0.07 |      0 |        14/15 |
+| MATLAB   | `v4`     | 0.07 |      0 |        14/15 |
+| MATLAB   | `s1`     | 0.00 |      0 |        15/15 |
+| MATLAB   | `s2`     | 0.00 |      0 |        15/15 |
+| MATLAB   | `s3`     | 0.73 |      1 |         5/15 |
+| MATLAB   | `s4`     | 1.93 |      2 |         0/15 |
 
-These values were measured from v0.1, which incorrectly complemented bits for both transfer
-families and reused continuous DA's radius branches. They are retained only as historical
-provenance and must not be treated as performance claims for the corrected BDA. A new
-multi-seed transfer-family study remains open in `PLAN.md`.
+The result is more nuanced than “V-shaped always wins”: `s1` and `s2` solved every run in
+both lifecycles, while the flatter `s3` and `s4` curves degraded sharply. The raw 240-run
+evidence and exact evaluation counts are in
+[`v0.2.0-bda-quality.csv`](../measurements/v0.2.0-bda-quality.csv), with the generated
+[summary](../measurements/v0.2.0-bda-quality.md).
 
 Cost, on Linux/amd64 with Go 1.26.0 on an AMD Ryzen 5 4600H: 30 bits, 50 iterations, `NPop` 30
 costs 17.3 ms (`v3`) to 21.9 ms (`s4`) per run. The spread across the eight is about 25%, all

@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -514,6 +513,125 @@ func TestOptimizeMultiObjectiveIsDeterministicForSeed(t *testing.T) {
 	}
 }
 
+func TestOptimizeMultiObjectiveFidelityEvaluationLifecycle(t *testing.T) {
+	tests := []struct {
+		name       string
+		fidelity   FidelityMode
+		iterations int
+		wantEvals  int
+	}{
+		{name: "paper_one_iteration", fidelity: FidelityPaper, iterations: 1, wantEvals: 8},
+		{name: "matlab_one_iteration", fidelity: FidelityMATLAB, iterations: 1, wantEvals: 4},
+		{name: "paper_three_iterations", fidelity: FidelityPaper, iterations: 3, wantEvals: 16},
+		{name: "matlab_three_iterations", fidelity: FidelityMATLAB, iterations: 3, wantEvals: 12},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			config := newMultiObjectiveTestConfig(ZDT1, 2, testCase.iterations, 73)
+			config.Swarm.NPop = 4
+			config.Swarm.FidelityMode = testCase.fidelity
+
+			result, err := OptimizeMultiObjective(context.Background(), config)
+			if err != nil {
+				t.Fatalf("run failed: %v", err)
+			}
+
+			if result.FuncEvalCount != testCase.wantEvals {
+				t.Errorf("FuncEvalCount = %d, want %d", result.FuncEvalCount, testCase.wantEvals)
+			}
+
+			if result.IterationCount != testCase.iterations {
+				t.Errorf("IterationCount = %d, want %d", result.IterationCount, testCase.iterations)
+			}
+		})
+	}
+}
+
+func TestOptimizeMultiObjectiveMATLABOneIterationArchivesInitialPopulation(t *testing.T) {
+	initial := [][]float64{{0, 0}, {0.25, 0}, {0.75, 0}}
+	config := newMultiObjectiveTestConfig(ZDT1, 2, 1, 81)
+	config.Swarm.NPop = len(initial)
+	config.Swarm.FidelityMode = FidelityMATLAB
+
+	result, err := OptimizeMultiObjective(
+		context.Background(), config, WithInitialPopulation(initial))
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	if result.Archive.Len() != len(initial) {
+		t.Fatalf("archive contains %d points, want the %d evaluated initial points",
+			result.Archive.Len(), len(initial))
+	}
+
+	for _, solution := range result.Archive.Solutions {
+		found := false
+		for _, position := range initial {
+			found = found || reflect.DeepEqual(solution.Position, position)
+		}
+
+		if !found {
+			t.Errorf("archive contains moved position %v; the final MATLAB movement must remain unevaluated",
+				solution.Position)
+		}
+
+		if want := ZDT1(solution.Position); !reflect.DeepEqual(solution.ObjectiveValues, want) {
+			t.Errorf("objectives %v do not match archived position %v (want %v)",
+				solution.ObjectiveValues, solution.Position, want)
+		}
+	}
+}
+
+func TestComputeMATLABMODAWeightsScheduleAndRNGConsumption(t *testing.T) {
+	config := NewDefaultConfig()
+	config.LowerBound = 0
+	config.UpperBound = 1
+
+	const seed = int64(91)
+
+	wantRNG := rand.New(rand.NewSource(seed))
+	wantFood := 2 * wantRNG.Float64()
+	wantNext := wantRNG.Float64()
+
+	rng := rand.New(rand.NewSource(seed))
+	first := computeMATLABMODAWeights(config, 1, 10, rng)
+
+	if math.Abs(first.Inertia-0.83) > 1e-12 {
+		t.Errorf("first one-based inertia = %g, want 0.83", first.Inertia)
+	}
+
+	for name, value := range map[string]float64{
+		"separation": first.Separation,
+		"alignment":  first.Alignment,
+		"cohesion":   first.Cohesion,
+		"enemy":      first.Enemy,
+	} {
+		if math.Abs(value-0.08) > 1e-12 {
+			t.Errorf("first %s weight = %g, want 0.08", name, value)
+		}
+	}
+
+	if first.Food != wantFood {
+		t.Errorf("first food weight = %.17g, want %.17g", first.Food, wantFood)
+	}
+
+	if next := rng.Float64(); next != wantNext {
+		t.Errorf("MATLAB MODA schedule consumed the wrong number of draws: next %.17g, want %.17g",
+			next, wantNext)
+	}
+
+	last := computeMATLABMODAWeights(config, 10, 10, rand.New(rand.NewSource(seed)))
+	if math.Abs(last.Inertia-0.2) > 1e-12 {
+		t.Errorf("last inertia = %g, want 0.2", last.Inertia)
+	}
+
+	if last.Separation != 0 || last.Alignment != 0 || last.Cohesion != 0 || last.Enemy != 0 {
+		t.Errorf("last automatic swarm weights = S:%g A:%g C:%g E:%g, want all zero",
+			last.Separation, last.Alignment, last.Cohesion, last.Enemy)
+	}
+}
+
 // TestOptimizeMultiObjectiveKeepsArchiveInvariants checks the two archive
 // guarantees on a real run rather than on synthetic inserts.
 func TestOptimizeMultiObjectiveKeepsArchiveInvariants(t *testing.T) {
@@ -553,113 +671,142 @@ func TestOptimizeMultiObjectiveKeepsArchiveInvariants(t *testing.T) {
 	}
 }
 
-// frontSpreadAndErrors summarizes an archive against an analytic front: the
-// extent of the archive along the first objective, and the smallest and median
-// vertical distance from an archived point to the front.
-//
-// The median rather than the maximum is the honest measure of convergence here.
-// A Pareto archive keeps every non-dominated point it has seen, and a point with
-// a very small f1 stays non-dominated however far it is from the front, so the
-// worst archive member is a statement about what the archive remembers rather
-// than about where the swarm converged.
-func frontSpreadAndErrors(archive *ParetoArchive, front func(f1 float64) float64) (float64, float64, float64) {
-	if archive.Len() == 0 {
-		return 0, math.Inf(1), math.Inf(1)
-	}
-
-	minF1 := math.Inf(1)
-	maxF1 := math.Inf(-1)
-	distances := make([]float64, 0, archive.Len())
-
-	for _, solution := range archive.Solutions {
-		f1 := solution.ObjectiveValues[0]
-		minF1 = math.Min(minF1, f1)
-		maxF1 = math.Max(maxF1, f1)
-		distances = append(distances, math.Abs(solution.ObjectiveValues[1]-front(f1)))
-	}
-
-	sort.Float64s(distances)
-
-	return maxF1 - minF1, distances[0], distances[len(distances)/2]
-}
-
-// assertNearFront is the shared body of the two ZDT convergence checks.
-func assertNearFront(
-	t *testing.T, archive *ParetoArchive, front func(float64) float64,
-	minSpread, maxClosest, maxMedian float64,
-) {
-	t.Helper()
-
-	if archive.Len() < 10 {
-		t.Fatalf("archive holds %d solutions, want at least 10", archive.Len())
-	}
-
-	spread, closest, median := frontSpreadAndErrors(archive, front)
-
-	if spread < minSpread {
-		t.Errorf("archive spans only %.3f of the first objective, want at least %.3f", spread, minSpread)
-	}
-
-	if closest > maxClosest {
-		t.Errorf("closest archived point is %.3f from the front, want at most %.3f", closest, maxClosest)
-	}
-
-	if median > maxMedian {
-		t.Errorf("median distance to the front is %.3f, want at most %.3f", median, maxMedian)
-	}
-}
-
-// TestOptimizeMultiObjectiveZDT1 checks that a seeded run recovers a spread of
-// solutions near ZDT1's analytic front f2 = 1 - sqrt(f1).
-//
-// It is gated by testing.Short: a run long enough to approach the front does not
-// belong in `just test-quick`.
-func TestOptimizeMultiObjectiveZDT1(t *testing.T) {
+// TestMODAPaperQualityGate replaces the v0.1 single-seed legacy trajectory
+// checks with a 15-seed gate on the paper-default algorithm. The thresholds are
+// deliberately degradation bars rather than golden observations: at least
+// twelve seeds must retain a populated, non-dominated front with useful
+// normalized convergence, coverage, and hypervolume.
+func TestMODAPaperQualityGate(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping the ZDT1 convergence run in short mode")
+		t.Skip("the paper MODA quality gate runs 30 optimizations; skipped under -short")
 	}
 
-	config := newMultiObjectiveTestConfig(ZDT1, 5, 400, 4242)
-	// These thresholds were measured from the released MATLAB-control-flow /
-	// MOPSO-grid trajectory. Paper-mode baselines require a new multi-seed study.
-	config.ArchivePolicy = ArchivePolicyMOPSOGrid
-	config.Swarm.FidelityMode = FidelityMATLAB
-	config.Swarm.NPop = 60
-
-	result, err := OptimizeMultiObjective(context.Background(), config)
-	if err != nil {
-		t.Fatalf("run failed: %v", err)
+	tests := []struct {
+		name            string
+		maxGD           float64
+		maxIGD          float64
+		minHV           float64
+		minimumSegments int
+	}{
+		{name: "ZDT1", maxGD: 0.40, maxIGD: 0.20, minHV: 0.70, minimumSegments: 1},
+		{name: "ZDT3", maxGD: 0.20, maxIGD: 0.30, minHV: 0.60, minimumSegments: 3},
 	}
 
-	assertNearFront(t, result.Archive, func(f1 float64) float64 {
-		return 1 - math.Sqrt(f1)
-	}, 0.5, 0.05, 0.3)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			problem, ok := qualityProblemNamed(testCase.name)
+			if !ok {
+				t.Fatalf("missing quality definition for %s", testCase.name)
+			}
+
+			successes := 0
+
+			for seed := int64(3000); seed <= 3014; seed++ {
+				config := newMultiObjectiveTestConfig(problem.objective, 5, 400, seed)
+				config.Swarm.NPop = 60
+
+				result, err := OptimizeMultiObjective(context.Background(), config)
+				if err != nil {
+					t.Fatalf("seed %d failed: %v", seed, err)
+				}
+
+				metrics, metricErr := evaluateFrontQuality(result.Archive, problem)
+				if metricErr != nil {
+					t.Fatalf("seed %d metrics failed: %v", seed, metricErr)
+				}
+
+				passed := result.Archive.IsNonDominated() && result.Archive.Len() >= 10 &&
+					metrics.gd <= testCase.maxGD && metrics.igd <= testCase.maxIGD &&
+					metrics.hypervolumeRatio >= testCase.minHV &&
+					metrics.segmentsCovered >= testCase.minimumSegments
+				if passed {
+					successes++
+				}
+
+				t.Logf("seed %d: archive=%d GD=%.4f IGD=%.4f HV=%.4f segments=%d pass=%t",
+					seed, result.Archive.Len(), metrics.gd, metrics.igd,
+					metrics.hypervolumeRatio, metrics.segmentsCovered, passed)
+			}
+
+			if successes < 12 {
+				t.Errorf("%d/15 seeds passed the paper quality bar, want at least 12/15", successes)
+			}
+		})
+	}
 }
 
-// TestOptimizeMultiObjectiveZDT3 is the same check against ZDT3, whose front is
-// disconnected: f2 = 1 - sqrt(f1) - f1*sin(10*pi*f1). The tolerances are looser
-// because the five disconnected pieces are harder to sit on than one continuous
-// curve, not because the run is allowed to do less well.
-func TestOptimizeMultiObjectiveZDT3(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping the ZDT3 convergence run in short mode")
+func TestZDT3QualityReferenceUsesOnlyTrueFrontIntervals(t *testing.T) {
+	problem, ok := qualityProblemNamed("ZDT3")
+	if !ok {
+		t.Fatal("missing ZDT3 quality definition")
 	}
 
-	config := newMultiObjectiveTestConfig(ZDT3, 5, 400, 4242)
-	// Preserve the provenance of the released regression thresholds; do not
-	// relabel one observed paper-mode run as a new baseline.
-	config.ArchivePolicy = ArchivePolicyMOPSOGrid
-	config.Swarm.FidelityMode = FidelityMATLAB
-	config.Swarm.NPop = 60
+	reference := sampleQualityFront(problem)
+	if len(reference) != 10001 {
+		t.Fatalf("ZDT3 reference contains %d samples, want 10001", len(reference))
+	}
 
-	result, err := OptimizeMultiObjective(context.Background(), config)
+	for _, point := range reference {
+		inside := false
+		for _, interval := range zdt3TrueFrontIntervals {
+			inside = inside || point.x >= interval.lo && point.x <= interval.hi
+		}
+
+		if !inside {
+			t.Fatalf("reference includes f1=%g from a dominated gap", point.x)
+		}
+	}
+
+	gapPoint := objectivePoint{x: 0.1, y: problem.front(0.1)}
+	ideal, span := objectiveNormalization(reference)
+	distance := math.Sqrt(nearestSquaredDistance(
+		normalizeObjectivePoint(gapPoint, ideal, span),
+		normalizeObjectivePoints(reference, ideal, span),
+	))
+
+	if distance < 0.01 {
+		t.Errorf("a point on the dominated analytic gap is only %.6g from the true front", distance)
+	}
+}
+
+func TestQualityMetricsRecognizeSampledZDT3Front(t *testing.T) {
+	problem, ok := qualityProblemNamed("ZDT3")
+	if !ok {
+		t.Fatal("missing ZDT3 quality definition")
+	}
+
+	archive := NewParetoArchive(1000)
+
+	reference := sampleQualityFront(problem)
+	for i, point := range reference {
+		if i%20 != 0 && i != len(reference)-1 {
+			continue
+		}
+
+		archive.Solutions = append(archive.Solutions, &ParetoSolution{
+			Position:        []float64{point.x, 0},
+			ObjectiveValues: []float64{point.x, point.y},
+		})
+	}
+
+	metrics, err := evaluateFrontQuality(archive, problem)
 	if err != nil {
-		t.Fatalf("run failed: %v", err)
+		t.Fatalf("evaluateFrontQuality failed: %v", err)
 	}
 
-	assertNearFront(t, result.Archive, func(f1 float64) float64 {
-		return 1 - math.Sqrt(f1) - f1*math.Sin(10*math.Pi*f1)
-	}, 0.5, 0.2, 0.6)
+	if metrics.gd != 0 || metrics.igd > 0.002 {
+		t.Errorf("sampled analytic front has GD=%g IGD=%g, want GD zero and IGD <= 0.002",
+			metrics.gd, metrics.igd)
+	}
+
+	if metrics.hypervolumeRatio < 0.995 || metrics.hypervolumeRatio > 1 {
+		t.Errorf("sampled analytic front has hypervolume ratio %g, want [0.995, 1]", metrics.hypervolumeRatio)
+	}
+
+	if metrics.segmentsCovered != len(zdt3TrueFrontIntervals) {
+		t.Errorf("sampled analytic front covers %d segments, want %d",
+			metrics.segmentsCovered, len(zdt3TrueFrontIntervals))
+	}
 }
 
 // TestOptimizeMultiObjectiveSchaffer checks the one-variable Schaffer N.1
@@ -1241,6 +1388,76 @@ func TestOptimizeMultiObjectiveParallelMatchesSequential(t *testing.T) {
 					i, j, want.Position[j], got.Position[j])
 			}
 		}
+	}
+}
+
+func TestOptimizeMultiObjectiveMATLABParallelMatchesSequential(t *testing.T) {
+	const seed = 4243
+
+	sequentialConfig := newMultiObjectiveTestConfig(ZDT1, 5, 40, seed)
+	sequentialConfig.Swarm.FidelityMode = FidelityMATLAB
+
+	sequential, err := OptimizeMultiObjective(context.Background(), sequentialConfig)
+	if err != nil {
+		t.Fatalf("sequential run failed: %v", err)
+	}
+
+	parallelConfig := newMultiObjectiveTestConfig(ZDT1, 5, 40, seed)
+	parallelConfig.Swarm.FidelityMode = FidelityMATLAB
+	parallelConfig.Swarm.EnableParallel = true
+	parallelConfig.Swarm.MaxWorkers = 4
+
+	parallel, err := OptimizeMultiObjective(context.Background(), parallelConfig)
+	if err != nil {
+		t.Fatalf("parallel run failed: %v", err)
+	}
+
+	if parallel.FuncEvalCount != sequential.FuncEvalCount ||
+		parallel.IterationCount != sequential.IterationCount ||
+		parallel.TerminationReason != sequential.TerminationReason {
+		t.Fatalf("run metadata differs: sequential (%d, %d, %q), parallel (%d, %d, %q)",
+			sequential.FuncEvalCount, sequential.IterationCount, sequential.TerminationReason,
+			parallel.FuncEvalCount, parallel.IterationCount, parallel.TerminationReason)
+	}
+
+	if !reflect.DeepEqual(parallel.ArchiveSizeCurve, sequential.ArchiveSizeCurve) {
+		t.Fatalf("archive curves differ: sequential %v, parallel %v",
+			sequential.ArchiveSizeCurve, parallel.ArchiveSizeCurve)
+	}
+
+	if !reflect.DeepEqual(parallel.Archive.Solutions, sequential.Archive.Solutions) {
+		t.Fatal("MATLAB archive differs between sequential and parallel evaluation")
+	}
+}
+
+func TestOptimizeMultiObjectiveMATLABStagnationStopsAfterMovement(t *testing.T) {
+	config := newMultiObjectiveTestConfig(func([]float64) []float64 { return []float64{0, 0} }, 2, 10, 4244)
+	config.Swarm.FidelityMode = FidelityMATLAB
+	config.Swarm.NPop = 4
+	config.Swarm.Convergence = &ConvergenceConfig{
+		StagnationIterations: 1,
+		MinIterations:        1,
+	}
+
+	var snapshots []ArchiveSnapshot
+
+	result, err := OptimizeMultiObjective(context.Background(), config,
+		WithArchiveObserver(func(snapshot ArchiveSnapshot) { snapshots = append(snapshots, snapshot) }))
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	// Generation one evaluates the initial population and seeds the archive.
+	// Generation two accepts no duplicate objective vector, but still completes
+	// its final movement before stagnation terminates the run.
+	if result.IterationCount != 2 || result.FuncEvalCount != 8 ||
+		result.TerminationReason != TerminationStagnation {
+		t.Fatalf("result = (iterations %d, evals %d, reason %q), want (2, 8, %q)",
+			result.IterationCount, result.FuncEvalCount, result.TerminationReason, TerminationStagnation)
+	}
+
+	if len(snapshots) != 2 || snapshots[1].EvaluationCount != 8 {
+		t.Fatalf("observer snapshots = %+v, want two completed evaluated generations", snapshots)
 	}
 }
 

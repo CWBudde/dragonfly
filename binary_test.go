@@ -372,6 +372,103 @@ func TestOptimizeBinaryKeepsPositionsBinaryThroughout(t *testing.T) {
 	}
 }
 
+func TestBinaryFidelityModeControlsEvaluationLifecycle(t *testing.T) {
+	tests := []struct {
+		name FidelityMode
+		want int
+	}{
+		{FidelityPaper, 4 * (3 + 1)},
+		{FidelityMATLAB, 4 * 3},
+	}
+
+	for _, test := range tests {
+		config := NewBinaryConfig()
+		config.ObjectiveFunc = sumVector
+		config.ProblemSize = 5
+		config.NPop = 4
+		config.MaxIterations = 3
+		config.FidelityMode = test.name
+		config.Rand = rand.New(rand.NewSource(46))
+
+		result, err := OptimizeBinary(config)
+		if err != nil {
+			t.Fatalf("%s: OptimizeBinary() error = %v", test.name, err)
+		}
+
+		if result.FuncEvalCount != test.want {
+			t.Errorf("%s: FuncEvalCount = %d, want %d", test.name, result.FuncEvalCount, test.want)
+		}
+	}
+}
+
+func TestBinaryFidelityModeControlsEarlyStopEvaluationLifecycle(t *testing.T) {
+	target := 100.0
+	tests := []struct {
+		name FidelityMode
+		want int
+	}{
+		{FidelityPaper, 8},
+		{FidelityMATLAB, 4},
+	}
+
+	for _, test := range tests {
+		config := NewBinaryConfig()
+		config.ObjectiveFunc = sumVector
+		config.ProblemSize = 5
+		config.NPop = 4
+		config.MaxIterations = 5
+		config.FidelityMode = test.name
+		config.Convergence = &ConvergenceConfig{TargetCost: &target, MinIterations: 1}
+		config.Rand = rand.New(rand.NewSource(48))
+
+		result, err := OptimizeBinary(config)
+		if err != nil {
+			t.Fatalf("%s: OptimizeBinary() error = %v", test.name, err)
+		}
+
+		if result.IterationCount != 1 || result.TerminationReason != TerminationTargetCost {
+			t.Errorf("%s: termination = (%d, %q), want (1, %q)",
+				test.name, result.IterationCount, result.TerminationReason, TerminationTargetCost)
+		}
+
+		if result.FuncEvalCount != test.want {
+			t.Errorf("%s: FuncEvalCount = %d, want %d", test.name, result.FuncEvalCount, test.want)
+		}
+	}
+}
+
+func TestMATLABBinaryPopulationSnapshotContainsEvaluatedPositions(t *testing.T) {
+	config := NewBinaryConfig()
+	config.ObjectiveFunc = sumVector
+	config.ProblemSize = 3
+	config.NPop = 2
+	config.MaxIterations = 1
+	config.FidelityMode = FidelityMATLAB
+	config.Rand = rand.New(rand.NewSource(47))
+
+	var snapshot PopulationSnapshot
+
+	result, err := OptimizeBinaryContext(context.Background(), config,
+		WithInitialPopulation([][]float64{{0, 0, 0}, {1, 0, 1}}),
+		WithPopulationObserver(func(observed PopulationSnapshot) { snapshot = observed }),
+	)
+	if err != nil {
+		t.Fatalf("OptimizeBinaryContext() error = %v", err)
+	}
+
+	for i := range snapshot.Swarm {
+		fly := snapshot.Swarm[i]
+		if fly.Cost != sumVector(fly.Position) {
+			t.Errorf("swarm[%d] cost %v does not describe evaluated position %v", i, fly.Cost, fly.Position)
+		}
+	}
+
+	if result.FuncEvalCount != config.NPop {
+		t.Errorf("FuncEvalCount = %d, want final moved swarm to remain unevaluated at %d calls",
+			result.FuncEvalCount, config.NPop)
+	}
+}
+
 func TestOptimizeBinaryRejectsNonBinaryBounds(t *testing.T) {
 	config := NewBinaryConfig()
 	config.ProblemSize = 4

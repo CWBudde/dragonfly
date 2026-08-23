@@ -15,8 +15,8 @@ SIGGRAPH Computer Graphics_, 21(4), 25–34.**
 
 Reference implementation: the author's `DA.m`. Where the reference code and a cleaner
 formulation disagree, this library implements the reference and exposes the alternative behind
-a `Config` field. The three places it deliberately departs from `DA.m` are listed in the
-[README](../../README.md#deviations-from-the-reference-matlab).
+a `Config` field. `FidelityPaper` is the default; `FidelityMATLAB` names the exact reference
+control flow.
 
 ## Overview
 
@@ -100,6 +100,11 @@ else:                                            # the full five-factor step
 The three `rand` factors in MATLAB's local-swarming branch are drawn **per dimension**, and the
 Lévy branch replaces the step rather than contributing to it, so `ΔX` is reset to zero.
 
+The lifecycle differs too. Paper mode evaluates initialization and every moved population,
+making `NPop·(T+1)` objective calls. MATLAB mode evaluates the current swarm before each move,
+updates its incumbents, performs the move, and deliberately leaves the final moved swarm
+unevaluated, for `NPop·T` calls. Returned results contain evaluated candidates only.
+
 ### Adaptive weight schedules
 
 All of DA's time dependence lives in `weights.go`, one struct per iteration:
@@ -131,6 +136,10 @@ food — whether or not those weights are pinned. A pinned weight discards its d
 skipping it, so overriding one weight changes only that weight and leaves the rest of the run's
 random stream aligned with a default-config run of the same seed.
 
+MODA's MATLAB mode is the one schedule exception: matching `MODA.m`, inertia falls from `0.9`
+to `0.2`, automatic separation/alignment/cohesion/enemy weights follow `mc` directly, and only
+the automatic food weight uses `2·rand`.
+
 ### Boundary handling
 
 DA's default is **wrap with step reset**, not clamp:
@@ -144,13 +153,20 @@ The redraw of the step component is half the rule. Dropping it changes the explo
 behaviour. `Config.BoundaryMethod` selects `"wrap"` (default), `"clamp"` or `"reflect"`; see
 the [Configuration Guide](../api/configuration.md#boundary-handling).
 
+That selection is the paper-mode contract. `FidelityMATLAB` overrides it and uses the exact
+reference order: calculate the primitives, pre-wrap/reset the current dragonfly, move from the
+already-calculated primitives, sanitize any non-finite safety case, and hard-clamp the moved
+position. The last moved swarm is therefore within bounds even though it is not evaluated.
+
 ## Key Innovations
 
 Relative to the boids model DA extends, and to PSO, which it most resembles:
 
-1. **Two swarm-level attractors instead of one.** The food source pulls, the enemy pushes. Both
-   are recomputed from the population every iteration, and the enemy is reported in
-   `Result.Worst` because every step of the run was computed against it.
+1. **Two swarm-level attractors instead of one.** The food source pulls, the enemy pushes. In
+   paper mode the actual worst and movement enemy coincide. MATLAB mode updates the movement
+   enemy only from strictly interior candidates, matching `DA.m`, while `Result.Worst`
+   independently reports the actual worst evaluated candidate. Population snapshots expose
+   the movement enemy.
 2. **No personal best.** DA carries no per-individual memory. Everything an individual knows
    comes from its current neighbourhood and the two swarm-level positions.
 3. **A neighbourhood radius that grows with the run.** Early on, neighbourhoods are local and

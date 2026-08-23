@@ -227,11 +227,12 @@ every dimension, 30 dimensions in the original suite.
 ZDT3 is the one an archive that collapses onto a single region fails first: its five
 disconnected pieces cannot be covered by a front approximation that has clustered.
 
-The 30 dimensions of the original suite are beyond what this implementation recovers. MODA
-reaches ZDT1's front exactly at `d = 5` and comes close at `d = 10` given a long enough run, but
-at `d = 30` the archive stays non-dominated while sitting well off the front, and it stops
-improving partway through rather than running out of budget. The measurements and the reason are
-in [MODA's performance section](algorithms/moda.md#performance).
+The 30 dimensions of the original suite are beyond what this implementation recovers. In the
+v0.2 paper-default five-dimensional, 15-seed gate, ZDT1 passed 14/15 seeds and ZDT3 passed
+12/15. At 30 dimensions, none of the paper, MATLAB or named legacy profile/problem pairs met
+the strict recovery bar in four of five seeds. The archive stays valid and non-dominated while
+sitting well off the front. The metrics and raw evidence are in
+[MODA's performance section](algorithms/moda.md#performance).
 
 ### SchafferN1
 
@@ -249,8 +250,10 @@ which makes SchafferN1 a good stress test of archive maintenance rather than of 
 
 ## Measured results
 
-Standard DA, 10 dimensions, 500 iterations, `NPop` 40, default configuration, seeds 1000–1014,
-median/mean/best/worst of 15 runs. Every function's global minimum is 0 except Michalewicz.
+The broad table below is the v0.1 trajectory retained as historical context: Standard DA, 10
+dimensions, 500 iterations, `NPop` 40, default configuration, seeds 1000–1014,
+median/mean/best/worst of 15 runs. The corrected v0.2 regression measurements follow it.
+Every function's global minimum is 0 except Michalewicz.
 
 | Function             | Bounds            |    Median |      Mean |      Best |     Worst |
 | -------------------- | ----------------- | --------: | --------: | --------: | --------: |
@@ -299,6 +302,18 @@ runs that land under it.
 | `DA_Griewank_10D`   |         10 |        500 |     40 |              2 |        3x |               80% |
 | `BDA_OneMax_30bit`  |         30 |        300 |     30 |              1 |        3x |               80% |
 
+The corrected v0.2 suite re-ran those exact 15 deterministic seeds without changing a
+threshold. All six baselines passed 15/15 runs:
+
+| Baseline            | Observed mean | Observed median | Pass rate |
+| ------------------- | ------------: | --------------: | --------: |
+| `DA_Sphere_10D`     |       94.5466 |         76.8328 |      100% |
+| `DA_Rastrigin_10D`  |       25.0785 |         22.5307 |      100% |
+| `DA_Ackley_10D`     |        5.0877 |          5.3935 |      100% |
+| `DA_Rosenbrock_10D` |       81.1692 |         83.7892 |      100% |
+| `DA_Griewank_10D`   |        1.4674 |          1.3960 |      100% |
+| `BDA_OneMax_30bit`  |        0.0000 |          0.0000 |      100% |
+
 A stochastic optimizer has no golden output: a change that merely shifts the random stream —
 one extra draw, two draws reordered — changes every measured number without changing the
 algorithm. Pinning observed values would produce a suite that fails on refactors and passes on
@@ -333,20 +348,11 @@ For a statistically defensible comparison, run each through
 [`ComparisonRunner`](api/comparison-framework.md) with 30 paired seeds rather than eyeballing
 single runs.
 
-## Known defects
+## Edge-case policy
 
-Two edge cases are inherited from the Mayfly port and tracked in [PLAN.md](../PLAN.md). They do
-not affect any real optimization, where positions always have `ProblemSize ≥ 1` components, but
-they are recorded rather than hidden:
-
-- **`Levy(nil)` panics** with `index out of range [0] with length 0`. It is the only benchmark
-  function that panics rather than returning a value.
-- **Empty-input handling is inconsistent.** Twelve functions return `0`, `Ackley` and `HappyCat`
-  return `NaN` (a division by `n`), and `Levy` panics. One convention should be chosen,
-  documented and asserted for all fifteen.
-
-They are tracked in both repositories and should be fixed in both together, so the two suites
-stay numerically comparable.
+Every single-objective benchmark now follows the same empty-input convention: `f([]) == 0`.
+`Levy(nil)` no longer panics, and `Ackley(nil)` and `HappyCat(nil)` no longer return `NaN`.
+The convention is asserted for all fifteen functions and matches the sibling Mayfly library.
 
 Two things that look like defects and are not, checked and cleared: `Levy`'s
 `sin(π·wᵢ + 1)` is the standard definition, and `ExpandedSchafferF6`'s wrap-around pair

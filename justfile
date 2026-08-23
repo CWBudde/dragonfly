@@ -1,5 +1,18 @@
 # Dragonfly Algorithm - Task Runner
 
+# Reproducible development and CI toolchain. Keep these in sync with the
+# versions used by the GitHub workflows.
+treefmt_version := "2.5.0"
+golangci_lint_version := "2.11.4"
+gofumpt_version := "0.11.0"
+gci_version := "0.14.0"
+shfmt_version := "3.13.1"
+taplo_version := "0.10.0"
+prettier_version := "3.9.6"
+shellcheck_version := "0.11.0"
+nancy_version := "2.1.0"
+govulncheck_version := "1.1.4"
+
 # Default recipe to display available commands
 default:
     @just --list
@@ -24,6 +37,17 @@ test-race:
 # Run all tests including long-running benchmark suite (no race detection)
 test-full:
     go test -v -timeout 10m ./...
+
+# Run the opt-in, deterministic v0.2 MODA quality study and atomically write
+# its CSV plus the sibling Markdown summary. This is intentionally outside the
+# ordinary test gates because it performs 45 30-dimensional, 1000-iteration runs.
+study-quality output="docs/measurements/v0.2.0-quality.csv":
+    DRAGONFLY_RUN_QUALITY_STUDY=1 DRAGONFLY_QUALITY_STUDY_OUTPUT="{{output}}" go test -v -count=1 -run '^TestMODAQualityStudy$' -timeout 30m .
+
+# Run the independent BDA transfer-family study (8 transfer functions x 2
+# fidelity modes x 15 seeds) and atomically write its CSV and Markdown summary.
+study-bda-quality output="docs/measurements/v0.2.0-bda-quality.csv":
+    DRAGONFLY_RUN_BDA_STUDY=1 DRAGONFLY_BDA_STUDY_OUTPUT="{{output}}" go test -v -count=1 -run '^TestBDAQualityStudy$' -timeout 30m .
 
 # Enforce the release coverage floor rather than merely generating a report.
 check-coverage min="80":
@@ -75,40 +99,76 @@ setup-deps:
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH=$HOME/go/bin:$PATH
+    mkdir -p "$HOME/go/bin"
     echo "Installing development dependencies..."
 
     # treefmt (formatter multiplexer)
-    command -v treefmt >/dev/null 2>&1 || { echo "Installing treefmt..."; curl -fsSL https://github.com/numtide/treefmt/releases/download/v2.5.0/treefmt_2.5.0_linux_amd64.tar.gz | sudo tar -C /usr/local/bin -xz treefmt; }
+    if ! command -v treefmt >/dev/null 2>&1 || ! treefmt --version 2>&1 | grep -Fq "{{treefmt_version}}"; then
+        echo "Installing treefmt {{treefmt_version}}..."
+        tool_tmp="$(mktemp -d)"
+        trap 'rm -rf "$tool_tmp"' EXIT
+        curl -fsSL "https://github.com/numtide/treefmt/releases/download/v{{treefmt_version}}/treefmt_{{treefmt_version}}_linux_amd64.tar.gz" -o "$tool_tmp/treefmt.tar.gz"
+        tar -C "$HOME/go/bin" -xzf "$tool_tmp/treefmt.tar.gz" treefmt
+        rm -rf "$tool_tmp"
+        trap - EXIT
+    fi
 
     # golangci-lint v2 (linter + formatter runner)
-    command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint..."; go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4; }
+    if ! command -v golangci-lint >/dev/null 2>&1 || ! golangci-lint version 2>&1 | grep -Fq "{{golangci_lint_version}}"; then
+        echo "Installing golangci-lint {{golangci_lint_version}}..."
+        go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v{{golangci_lint_version}}
+    fi
 
     # Go formatters
-    command -v gofumpt >/dev/null 2>&1 || { echo "Installing gofumpt..."; go install mvdan.cc/gofumpt@latest; }
-    command -v gci >/dev/null 2>&1 || { echo "Installing gci..."; go install github.com/daixiang0/gci@latest; }
+    if ! command -v gofumpt >/dev/null 2>&1 || ! gofumpt -version 2>&1 | grep -Fq "{{gofumpt_version}}"; then
+        echo "Installing gofumpt {{gofumpt_version}}..."
+        go install mvdan.cc/gofumpt@v{{gofumpt_version}}
+    fi
+    if ! command -v gci >/dev/null 2>&1 || ! gci --version 2>&1 | grep -Fq "{{gci_version}}"; then
+        echo "Installing gci {{gci_version}}..."
+        go install github.com/daixiang0/gci@v{{gci_version}}
+    fi
 
     # Shell formatter
-    command -v shfmt >/dev/null 2>&1 || { echo "Installing shfmt..."; go install mvdan.cc/sh/v3/cmd/shfmt@latest; }
+    if ! command -v shfmt >/dev/null 2>&1 || ! shfmt --version 2>&1 | grep -Fq "{{shfmt_version}}"; then
+        echo "Installing shfmt {{shfmt_version}}..."
+        go install mvdan.cc/sh/v3/cmd/shfmt@v{{shfmt_version}}
+    fi
 
     # Markdown/JSON/YAML formatter
-    command -v prettier >/dev/null 2>&1 || { echo "Installing prettier..."; npm install -g prettier || echo "Prettier installation failed - npm not found."; }
+    if ! command -v prettier >/dev/null 2>&1 || [[ "$(prettier --version 2>&1)" != "{{prettier_version}}" ]]; then
+        echo "Installing prettier {{prettier_version}}..."
+        npm install -g prettier@{{prettier_version}}
+    fi
 
-    # Shell linter. treefmt.toml declares it, so without it every *.sh file is
-    # skipped silently; see the note on taplo below.
-    command -v shellcheck >/dev/null 2>&1 || { echo "Installing shellcheck..."; sudo apt-get install -y shellcheck || echo "Shellcheck installation failed - install it manually."; }
+    # Shell linter. Install the upstream release so CI and local checks use the
+    # same version instead of whichever package an OS repository happens to ship.
+    if ! command -v shellcheck >/dev/null 2>&1 || ! shellcheck --version 2>&1 | grep -Fq "version: {{shellcheck_version}}"; then
+        echo "Installing shellcheck {{shellcheck_version}}..."
+        tool_tmp="$(mktemp -d)"
+        trap 'rm -rf "$tool_tmp"' EXIT
+        curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v{{shellcheck_version}}/shellcheck-v{{shellcheck_version}}.linux.x86_64.tar.xz" -o "$tool_tmp/shellcheck.tar.xz"
+        tar -C "$tool_tmp" -xJf "$tool_tmp/shellcheck.tar.xz"
+        install "$tool_tmp/shellcheck-v{{shellcheck_version}}/shellcheck" "$HOME/go/bin/shellcheck"
+        rm -rf "$tool_tmp"
+        trap - EXIT
+    fi
 
     # TOML formatter. Prefer the prebuilt binary: `cargo install taplo-cli` needs a
     # Rust toolchain, and when it is absent treefmt just skips every .toml file --
     # `--allow-missing-formatter` makes a missing formatter silent, so `just
     # check-formatted` goes green locally and fails in CI, which is exactly how
     # .golangci.toml stayed unformatted through nine phases.
-    command -v taplo >/dev/null 2>&1 || {
-        echo "Installing taplo..."
-        curl -fsSL https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-x86_64.gz \
-            | gunzip > "$HOME/go/bin/taplo" && chmod +x "$HOME/go/bin/taplo" \
-            || cargo install taplo-cli --locked \
-            || echo "Taplo installation failed - install it manually."
-    }
+    if ! command -v taplo >/dev/null 2>&1 || ! taplo --version 2>&1 | grep -Fq "{{taplo_version}}"; then
+        echo "Installing taplo {{taplo_version}}..."
+        tool_tmp="$(mktemp -d)"
+        trap 'rm -rf "$tool_tmp"' EXIT
+        curl -fsSL "https://github.com/tamasfe/taplo/releases/download/{{taplo_version}}/taplo-linux-x86_64.gz" -o "$tool_tmp/taplo.gz"
+        gzip -dc "$tool_tmp/taplo.gz" > "$HOME/go/bin/taplo"
+        chmod +x "$HOME/go/bin/taplo"
+        rm -rf "$tool_tmp"
+        trap - EXIT
+    fi
 
 # Fail if any formatter treefmt.toml declares is missing.
 #
@@ -117,19 +177,33 @@ setup-deps:
 # Run this to find out which formatters are actually doing anything.
 check-tools:
     #!/usr/bin/env bash
-    set -uo pipefail
+    set -euo pipefail
     export PATH=$HOME/go/bin:$PATH
-    missing=0
-    for tool in gofumpt gci prettier taplo shfmt shellcheck; do
-        if command -v "$tool" >/dev/null 2>&1; then
-            printf '  ok      %s\n' "$tool"
+    failed=0
+    check_version() {
+        local tool="$1"
+        local expected="$2"
+        shift 2
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            printf '  MISSING %s (expected %s)\n' "$tool" "$expected"
+            failed=1
+        elif version_output="$("$@" 2>&1)" && grep -Fq "$expected" <<< "$version_output"; then
+            printf '  ok      %s %s\n' "$tool" "$expected"
         else
-            printf '  MISSING %s\n' "$tool"
-            missing=1
+            printf '  WRONG   %s (expected %s; got %s)\n' "$tool" "$expected" "${version_output:-unknown}"
+            failed=1
         fi
-    done
-    if [[ "$missing" -ne 0 ]]; then
-        echo "Some formatters are missing; treefmt silently skips the files they own." >&2
+    }
+    check_version treefmt "{{treefmt_version}}" treefmt --version
+    check_version golangci-lint "{{golangci_lint_version}}" golangci-lint version
+    check_version gofumpt "{{gofumpt_version}}" gofumpt -version
+    check_version gci "{{gci_version}}" gci --version
+    check_version prettier "{{prettier_version}}" prettier --version
+    check_version taplo "{{taplo_version}}" taplo --version
+    check_version shfmt "{{shfmt_version}}" shfmt --version
+    check_version shellcheck "version: {{shellcheck_version}}" shellcheck --version
+    if [[ "$failed" -ne 0 ]]; then
+        echo "The formatter/linter toolchain is missing or does not match the pinned versions." >&2
         echo "Run: just setup-deps" >&2
         exit 1
     fi
@@ -175,7 +249,7 @@ docs:
     godoc -http=:6060
 
 # Fail if any file is not formatted
-check-formatted:
+check-formatted: check-tools
     #!/usr/bin/env bash
     export PATH=$HOME/go/bin:$PATH
     treefmt --allow-missing-formatter --fail-on-change
@@ -190,11 +264,12 @@ check: check-formatted check-tidy lint test
 # Run all checks with race detection
 check-race: check-formatted check-tidy lint test-race
 
-# Full CI pipeline
-ci: verify check check-coverage check-examples
+# Full CI pipeline. check-coverage runs the complete suite, so do not also run
+# `test` through `check` here.
+ci: verify check-formatted check-tidy lint check-coverage check-examples security
 
 # Full CI pipeline with race detection
-ci-race: verify check-race check-coverage check-examples
+ci-race: verify check-formatted check-tidy lint test-race check-coverage check-examples security
 
 # Profile CPU performance
 profile-cpu:
@@ -277,22 +352,69 @@ optimize func="Sphere" size="30" iter="1000":
 # Install development tools (see also: just setup-deps)
 install-tools: setup-deps
     go install golang.org/x/tools/cmd/godoc@latest
-    go install github.com/sonatype-nexus-community/nancy@latest
-    go install golang.org/x/vuln/cmd/govulncheck@latest
+    just setup-security-tools
+
+# Install the pinned security scanners. This recipe is also a dependency of
+# `security`, making the gate reproducible on fresh CI runners.
+setup-security-tools:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH=$HOME/go/bin:$PATH
+    mkdir -p "$HOME/go/bin"
+    if ! command -v nancy >/dev/null 2>&1 || ! nancy --version 2>&1 | grep -Fq "{{nancy_version}}"; then
+        echo "Installing nancy {{nancy_version}}..."
+        go install github.com/sonatype-nexus-community/nancy/v2@v{{nancy_version}}
+    fi
+    if ! command -v govulncheck >/dev/null 2>&1 || ! govulncheck -version 2>&1 | grep -Fq "v{{govulncheck_version}}"; then
+        echo "Installing govulncheck {{govulncheck_version}}..."
+        go install golang.org/x/vuln/cmd/govulncheck@v{{govulncheck_version}}
+    fi
+
+# Fail when security scanners are missing or do not match the release pins.
+check-security-tools:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH=$HOME/go/bin:$PATH
+    failed=0
+    if ! command -v nancy >/dev/null 2>&1; then
+        echo "MISSING nancy (expected {{nancy_version}})" >&2
+        failed=1
+    elif ! version_output="$(nancy --version 2>&1)" || ! grep -Fq "{{nancy_version}}" <<< "$version_output"; then
+        echo "WRONG nancy version (expected {{nancy_version}}; got ${version_output:-unknown})" >&2
+        failed=1
+    fi
+    if ! command -v govulncheck >/dev/null 2>&1; then
+        echo "MISSING govulncheck (expected {{govulncheck_version}})" >&2
+        failed=1
+    elif ! version_output="$(govulncheck -version 2>&1)" || ! grep -Fq "v{{govulncheck_version}}" <<< "$version_output"; then
+        echo "WRONG govulncheck version (expected {{govulncheck_version}}; got ${version_output:-unknown})" >&2
+        failed=1
+    fi
+    if [[ "$failed" -ne 0 ]]; then
+        echo "Run: just setup-security-tools" >&2
+        exit 1
+    fi
+    echo "Security toolchain matches the pinned versions."
 
 # Check for security vulnerabilities in the dependency tree and in reachable code
-security: audit vuln
+security: setup-security-tools check-security-tools audit vuln
 
 # Audit the production dependency tree against the OSS Index.
 # The library is stdlib-only, so this audits nothing today and exists to catch the
 # first real dependency that is ever added.
 audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH=$HOME/go/bin:$PATH
     go list -json -deps ./... | nancy sleuth
 
 # Scan for vulnerabilities Go's own database knows about, by reachability.
 # Unlike `just audit` this covers test-only dependencies -- godog and its tree -- and
 # reports whether a vulnerable symbol is actually called rather than merely present.
 vuln:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH=$HOME/go/bin:$PATH
     govulncheck ./...
 
 # Validate a prospective release without creating a tag
@@ -309,12 +431,8 @@ release-check version:
     test -s LICENSE
     test -s README.md
     test "$(go list -m)" = "github.com/CWBudde/dragonfly"
-    just verify
-    just check-formatted
-    just check-tidy
-    just lint
     go vet ./...
-    go test -timeout 20m ./...
+    just ci-race
 
 # Validate and create an annotated release tag locally
 release version:

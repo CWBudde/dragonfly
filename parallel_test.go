@@ -26,6 +26,7 @@ type parallelCase struct {
 func parallelTestCases() []parallelCase {
 	return []parallelCase{
 		{name: "default", apply: func(*Config) {}},
+		{name: "matlab_fidelity", apply: func(config *Config) { config.FidelityMode = FidelityMATLAB }},
 		{name: "pinned_weights", apply: func(config *Config) {
 			config.SeparationWeight = 0.1
 			config.AlignmentWeight = 0.2
@@ -760,6 +761,9 @@ func parallelBinaryCases() []parallelCase {
 
 	return []parallelCase{
 		{name: "binary_default", apply: func(*Config) {}},
+		{name: "binary_matlab_fidelity", apply: func(config *Config) {
+			config.FidelityMode = FidelityMATLAB
+		}},
 		{name: "binary_pinned_weights", apply: func(config *Config) {
 			config.SeparationWeight = 0.1
 			config.AlignmentWeight = 0.2

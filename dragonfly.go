@@ -57,6 +57,10 @@ type runState struct {
 	swarm []Dragonfly
 	food  Best
 	enemy Best
+	// movementEnemy is the reference that MATLAB-compatible DA steps use.
+	// DA.m updates it only from positions strictly inside the search box,
+	// whereas enemy records the actual worst evaluated candidate for Result.
+	movementEnemy Best
 	// funcEvals counts every call to config.ObjectiveFunc, including the ones
 	// made while initializing the swarm.
 	funcEvals int
@@ -116,7 +120,7 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 		return nil, initializationErr
 	}
 
-	if !hasFiniteObjective(state.swarm) {
+	if effectiveFidelityMode(config) != FidelityMATLAB && !hasFiniteObjective(state.swarm) {
 		return nil, ErrNoFiniteObjective
 	}
 
@@ -134,8 +138,26 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 			return nil, ctxErr
 		}
 
-		weights := computeWeights(config, t+1, config.MaxIterations, rng)
+		if effectiveFidelityMode(config) == FidelityMATLAB {
+			stopReason, stop, iterationErr := runMATLABIteration(
+				ctx, config, state, resolved, tracker, t+1, rng, &curve,
+			)
+			if iterationErr != nil {
+				return nil, iterationErr
+			}
 
+			completed = t + 1
+
+			if stop {
+				reason = stopReason
+
+				break
+			}
+
+			continue
+		}
+
+		weights := computeWeights(config, t+1, config.MaxIterations, rng)
 		prepareSwarm(state, config, weights, rng)
 
 		evaluationErr := state.evaluate(ctx)
@@ -175,8 +197,60 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 	return result, nil
 }
 
-// initializeRun builds the starting swarm and evaluates it, so that the food
-// and enemy positions the first step is computed against already exist.
+// runMATLABIteration reproduces DA.m's evaluate-before-move lifecycle. The
+// evaluated population is copied before movement so observer costs always
+// describe the positions delivered with them; notification and early stopping
+// still happen after the generation's move, as promised by the Go API.
+func runMATLABIteration(
+	ctx context.Context,
+	config *Config,
+	state *runState,
+	options runOptions,
+	tracker *convergenceTracker,
+	iteration int,
+	rng *rand.Rand,
+	curve *[]float64,
+) (TerminationReason, bool, error) {
+	weights := computeWeights(config, iteration, config.MaxIterations, rng)
+
+	evaluationErr := state.evaluate(ctx)
+	if evaluationErr != nil {
+		return "", false, evaluationErr
+	}
+
+	if !hasFiniteObjective(state.swarm) {
+		return "", false, ErrNoFiniteObjective
+	}
+
+	state.updateMATLABMovementEnemy(config.LowerBound, config.UpperBound)
+
+	var evaluatedSwarm []Dragonfly
+	if options.populationObserver != nil {
+		evaluatedSwarm = cloneDragonflies(state.swarm)
+	}
+
+	*curve = append(*curve, state.food.Cost)
+	prepareSwarm(state, config, weights, rng)
+
+	contextErr := ctx.Err()
+	if contextErr != nil {
+		return "", false, contextErr
+	}
+
+	notifyProgress(options.observer, iteration, state.funcEvals, state.food)
+	notifyPopulation(options.populationObserver, iteration, state.funcEvals,
+		state.food, state.movementEnemy, evaluatedSwarm)
+	logIterationCompleted(ctx, options.logger, iteration, state.funcEvals, state.food)
+
+	reason, stop := tracker.observe(iteration, state.food)
+
+	return reason, stop, nil
+}
+
+// initializeRun builds the starting swarm. Paper mode evaluates it immediately
+// so that the food and enemy positions the first step is computed against
+// already exist. MATLAB mode leaves it unscored because DA.m evaluates the
+// current population at the start of each iteration.
 //
 // Following the reference DA.m, both the position and the step are drawn
 // uniformly from [LowerBound, UpperBound]. Seeding ΔX from the whole search box
@@ -231,18 +305,53 @@ func initializeRun(
 			Position: make([]float64, config.ProblemSize),
 			Cost:     math.Inf(-1),
 		},
+		movementEnemy: Best{
+			Position: make([]float64, config.ProblemSize),
+			Cost:     math.Inf(-1),
+		},
 	}
 
 	if config.EnableParallel {
 		state.pool = newEvaluationPool(state.evaluator, effectiveMaxWorkers(config), config.NPop)
 	}
 
-	evaluationErr := state.evaluate(ctx)
-	if evaluationErr != nil {
-		return nil, evaluationErr
+	if effectiveFidelityMode(config) != FidelityMATLAB {
+		evaluationErr := state.evaluate(ctx)
+		if evaluationErr != nil {
+			return nil, evaluationErr
+		}
 	}
 
 	return state, nil
+}
+
+// updateMATLABMovementEnemy applies DA.m's strict-interior guard to the enemy
+// used for movement. The public enemy is updated independently by evaluate and
+// therefore remains the true worst evaluated candidate even when every point
+// lies on a bound.
+func (state *runState) updateMATLABMovementEnemy(lower, upper float64) {
+	for i := range state.swarm {
+		fly := &state.swarm[i]
+		if !strictlyInsideBounds(fly.Position, lower, upper) {
+			continue
+		}
+
+		if state.evaluator.better(
+			evaluationFromBest(state.movementEnemy), evaluationFromDragonfly(fly),
+		) {
+			copyDragonflyToBest(&state.movementEnemy, fly)
+		}
+	}
+}
+
+func strictlyInsideBounds(position []float64, lower, upper float64) bool {
+	for _, value := range position {
+		if !(value > lower && value < upper) {
+			return false
+		}
+	}
+
+	return len(position) > 0
 }
 
 // evaluateSwarm scores every dragonfly and updates the food (best) and enemy

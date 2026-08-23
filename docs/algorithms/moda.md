@@ -108,8 +108,9 @@ each completed iteration. A curve that stops growing early is the usual sign of 
 1. **The food source and the enemy become draws from a distribution rather than facts about the
    population.** This is the whole variant, and it is what turns "keep the non-dominated set"
    into "keep a non-dominated set that is spread out".
-2. **The grid does double duty.** The same occupancy counts drive food selection, enemy
-   selection and overflow eviction, with three exponents rather than three mechanisms.
+2. **One named density policy drives all archive decisions.** Paper mode uses segment occupancy,
+   MATLAB mode uses the reference span/20 ranking, and the legacy MOPSO extension exposes its
+   three exponents explicitly. Food, enemy and overflow never silently mix policies.
 3. **The invariant is maintained continuously.** Non-domination is restored on every insert,
    not repaired at the end. That is where an archive silently breaks, and where the tests
    therefore look.
@@ -220,8 +221,8 @@ positive. The swarm block is validated by the same `validateConfig` a single-obj
 
 - **One implementation of the search.** MODA calls the same `prepareSwarmStep` the continuous
   variant does, so a fix to the step update fixes both, and there is no second copy to drift.
-- **A spread front, not a clustered one.** The sparse-cell food draw actively pushes the swarm
-  toward under-covered regions, which is what the crowding heuristics in most multi-objective
+- **A spread front, not a clustered one.** Each archive policy biases food toward
+  under-covered regions, which is what the crowding heuristics in most multi-objective
   metaheuristics exist to achieve.
 - **The invariant is checkable.** `IsNonDominated()` is exported, so an application can assert
   the property the archive promises rather than trusting it.
@@ -229,50 +230,40 @@ positive. The swarm block is validated by the same `validateConfig` a single-obj
 
 ## Performance
 
-All measured with seed 4242, `NPop` 60, 400 iterations, `ArchiveSize` 50, 24,060 evaluations —
-the settings `multiobjective_test.go` uses for its front-recovery tests. "Median distance" is
-the median vertical distance from an archived point to the analytic front; "spread" is the
-range of `f1` the archive covers.
+The release gate first checks the paper-default algorithm at five dimensions, `NPop = 60`, 400
+iterations and 15 seeds. A seed passes only when the archive is populated and non-dominated and
+meets normalized GD, IGD, hypervolume and coverage thresholds. ZDT1 passed 14/15 seeds; ZDT3
+passed 12/15, exactly the required floor. ZDT3's reference set excludes the dominated gaps
+between its five true front segments.
 
-| Problem | Dimensions | Archive | Spread | Closest to front | Median distance |
-| ------- | ---------: | ------: | -----: | ---------------: | --------------: |
-| ZDT1    |          5 |      50 |  0.960 |            0.000 |           0.000 |
-| ZDT3    |          5 |      21 |  0.846 |            0.000 |           0.324 |
+The harder release study uses 30 dimensions, `NPop = 100`, 1000 iterations, archive capacity
+100 and seeds 3000–3004. Metrics are normalized against 10,001 analytic-front samples. “Paper”
+uses paper fidelity and segment selection; “MATLAB” uses the reference lifecycle and density
+ranking; “legacy” combines the MATLAB lifecycle with the named v0.1 MOPSO-grid extension.
 
-At 5 dimensions MODA recovers ZDT1's front essentially exactly and covers most of it. ZDT3's
-five disconnected pieces are harder to sit on, which is why its tolerances in the test suite
-are looser.
+| Profile | Problem | Median GD | Median IGD | Median HV | Median best `g` | Median archive |
+| ------- | ------- | --------: | ---------: | --------: | --------------: | -------------: |
+| paper   | ZDT1    |     1.095 |      0.911 |     0.002 |           2.365 |             59 |
+| paper   | ZDT2    |     1.609 |      1.765 |     0.000 |           2.423 |             12 |
+| paper   | ZDT3    |     0.616 |      0.561 |     0.106 |           2.441 |             69 |
+| MATLAB  | ZDT1    |     1.216 |      1.293 |     0.000 |           2.572 |             59 |
+| MATLAB  | ZDT2    |     0.902 |      1.240 |     0.000 |           1.833 |              1 |
+| MATLAB  | ZDT3    |     0.742 |      0.619 |     0.055 |           2.804 |             59 |
+| legacy  | ZDT1    |     0.691 |      1.007 |     0.000 |           2.049 |             55 |
+| legacy  | ZDT2    |     0.825 |      1.328 |     0.000 |           1.825 |              1 |
+| legacy  | ZDT3    |     0.631 |      0.541 |     0.122 |           2.662 |             92 |
 
-Dimensionality is the binding constraint, and the honest number is less flattering. ZDT1 with
-`NPop` 100, five seeds, median distance to the analytic front:
+The brutally honest result is that **none of the nine 30-dimensional profile/problem pairs
+recovered the front**: every pair scored 0/5 against the release study's strict bar of GD and
+IGD at most 0.05 and hypervolume ratio at least 0.95, with all five ZDT3 segments required.
+Large, valid, mutually non-dominated archives therefore must not be mistaken for convergence;
+the median best `g` remains far above the true value 1. No parity with the paper's published
+30-dimensional plots is claimed.
 
-| Dimensions | 1000 iterations | 10000 iterations |
-| ---------: | --------------: | ---------------: |
-|          5 |           0.000 |            0.000 |
-|         10 |     0.381–0.923 |      0.027–0.043 |
-|         20 |     1.004–1.509 |      0.115–0.561 |
-|         30 |     1.563–1.683 |      0.376–0.459 |
-
-At 30 dimensions and 1000 iterations the archive holds 44–96 mutually non-dominated solutions
-but its lowest `f2` is 1.26–1.38, where the true front has `f2 ∈ [0, 1]`. The run has found the
-shape of the trade-off and not the front itself. It is not a 30-dimensional cliff either — the
-degradation is already plain at `d = 10`.
-
-**This is a stall, not an unfinished run.** Instrumenting a run to record the running minimum of
-ZDT1's `g` term shows it freezing after roughly the first half of the schedule and never moving
-again: at `d = 30` with 40000 iterations the best `f2` is unchanged from iteration 2000 onward.
-A longer budget helps only because the schedules are `t/T`-relative, so a larger `T` stretches
-the exploratory phase before the same stall; a 4× population barely moves the number at all.
-The mechanism is the one [standard DA](standard-da.md#performance) has, seen from the
-multi-objective side: the convergence factor reaches zero at `t = T/2`, which zeroes separation,
-alignment, cohesion and the enemy term, leaving only inertia and the food term — and MODA draws
-its food from the _sparsest_ occupied hypercube, so what remains of the run seeks spread rather
-than convergence. The second half of a run can redistribute along the archive it already has,
-but it cannot lower `g`.
-
-No parity with the paper's 30-dimensional ZDT results is claimed. These measurements predate
-the paper-default archive policy and therefore describe the named legacy MOPSO trajectory, not
-the corrected default. SchafferN1, a one-variable problem, is solved outright.
+The raw 45-run evidence, including source hash, serialized configuration, exact evaluation
+counts and every per-seed metric, is in
+[`v0.2.0-quality.csv`](../measurements/v0.2.0-quality.csv); the generated
+[summary](../measurements/v0.2.0-quality.md) records the recovery verdicts.
 
 Cost, on Linux/amd64 with Go 1.26.0 on an AMD Ryzen 5 4600H:
 `BenchmarkOptimizeMultiObjectiveBaseline` — 30-dimensional ZDT1, 100 iterations, `NPop` 40 — is

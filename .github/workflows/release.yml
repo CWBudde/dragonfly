@@ -18,17 +18,20 @@ jobs:
   validate:
     name: Validate release
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Go
+      - name: Set up Go 1.26
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.26.x"
           cache: true
+
+      - name: Set up just
+        uses: extractions/setup-just@v2
 
       - name: Resolve and validate version
         id: version
@@ -49,32 +52,8 @@ jobs:
           echo "Validating v$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Validate package metadata
-        run: |
-          test -s LICENSE
-          test -s CHANGELOG.md
-          test -s README.md
-          grep -Fq '## [${{ steps.version.outputs.version }}]' CHANGELOG.md
-          test "$(go list -m)" = "github.com/CWBudde/dragonfly"
-          go mod verify
-          go mod tidy -diff
-          go vet ./...
+      - name: Install pinned quality toolchain
+        run: just setup-deps
 
-      - name: Run tests
-        run: |
-          go test -timeout 20m -coverprofile=coverage.out -covermode=atomic ./...
-          total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/, "", $3); print $3}')"
-          awk -v total="$total" 'BEGIN { if (total + 0 < 80) exit 1 }'
-
-      - name: Compile example modules
-        run: |
-          for module in examples examples/basic examples/comparison examples/constrained examples/feature_selection examples/multiobjective examples/parallel; do
-            (cd "$module" && go build ./...)
-          done
-          (cd examples/wasm-demo && GOOS=js GOARCH=wasm go build -o /dev/null . && go build -o /dev/null ./...)
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.11.4
-          args: --config ./.golangci.toml --timeout 5m
+      - name: Run release gate
+        run: just release-check '${{ steps.version.outputs.version }}'
