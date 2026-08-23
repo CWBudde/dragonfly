@@ -172,6 +172,7 @@ a:hover {
   font-size: 0.75rem;
   color: var(--ink-dim);
   min-height: 1.4rem;
+  margin: 0 0 1.75rem;
 }
 
 .status::before {
@@ -214,9 +215,13 @@ a:hover {
 
 /* ── page shell ─────────────────────────────────────────────────────────── */
 
+/*
+ * The lede runs the full measure rather than a 62ch column: it sits above the
+ * instrument now, with the status line under it, and a short column above a
+ * full-width grid read as a mistake.
+ */
 .lede {
-  max-width: 62ch;
-  margin: 0 0 1.75rem;
+  margin: 0 0 0.9rem;
   color: var(--ink-dim);
 }
 
@@ -340,7 +345,8 @@ canvas {
   margin-bottom: 0;
 }
 
-.field > label {
+.field > label,
+.field-head > label {
   font-family: var(--mono);
   font-size: 0.68rem;
   letter-spacing: 0.06em;
@@ -348,10 +354,91 @@ canvas {
   color: var(--ink-faint);
 }
 
+/*
+ * A label with its (i) pushed to the right edge of the rail. The explanations
+ * these carry are worth having and were worth three lines of standing prose
+ * each; on hover they cost nothing and the controls stay in one screen.
+ */
+.field-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.hint {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--rule-bright);
+  color: var(--ink-faint);
+  background: var(--panel-high);
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 13px;
+  text-align: center;
+  cursor: help;
+}
+
+.hint:hover,
+.hint:focus-visible {
+  color: var(--swarm);
+  border-color: var(--swarm);
+}
+
+/*
+ * The bubble spans the field rather than hanging off the badge: the rail is
+ * 17.5rem wide, so anything anchored to a 15px dot at its right edge either
+ * overflows the viewport or wraps to two words a line.
+ */
+.hint-body {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: none;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--rule-bright);
+  border-radius: 6px;
+  background: var(--panel-high);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 45%);
+  color: var(--ink-dim);
+  font-family: var(--display);
+  font-size: 0.76rem;
+  letter-spacing: normal;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.hint:hover .hint-body,
+.hint:focus-visible .hint-body,
+.hint:focus-within .hint-body {
+  display: block;
+}
+
+/* An (i) with nothing behind it would be a promise the page cannot keep. */
+.hint:has(.hint-body:empty) {
+  visibility: hidden;
+}
+
 .field-pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.55rem;
+}
+
+/*
+ * Grid items stretch to the row, so the trailing margin of the first .field
+ * came out of its own height and left "Lower" a hair shorter than "Upper".
+ * The pair owns the spacing below it; its children own none.
+ */
+.field-pair > .field {
+  margin-bottom: 0;
 }
 
 input,
@@ -485,6 +572,11 @@ button[aria-pressed="true"] {
   gap: 0.4rem;
 }
 
+/* display:flex above outranks the hidden attribute; say so explicitly. */
+.legend li[hidden] {
+  display: none;
+}
+
 .legend .key {
   width: 10px;
   height: 10px;
@@ -496,6 +588,48 @@ button[aria-pressed="true"] {
   border-radius: 2px;
   background: none;
   border: 1.5px solid currentColor;
+}
+
+.legend .key.cross {
+  border-radius: 0;
+  background: none;
+  border: none;
+  color: var(--ok);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 10px;
+  text-align: center;
+}
+
+/* View switches for the stage: what is drawn, not what is computed. */
+.stage-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  margin-top: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+
+.stage-options label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.stage-options input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  accent-color: var(--swarm);
+}
+
+/* Nothing to mark: the switch stays visible, so the absence is legible. */
+.stage-options label:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ── secondary panels ───────────────────────────────────────────────────── */
@@ -568,7 +702,6 @@ td.tie {
   border-radius: 0 var(--radius) var(--radius) 0;
   color: var(--ink-dim);
   font-size: 0.85rem;
-  max-width: 74ch;
 }
 
 .caveat h2 {

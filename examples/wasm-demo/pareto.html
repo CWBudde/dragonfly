@@ -54,8 +54,6 @@
       </nav>
     </header>
 
-    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
-
     <p class="lede">
       A multi-objective run has no single best answer, so it has nothing to
       converge <em>to</em> — it has a front to spread out along. MODA keeps that
@@ -65,6 +63,8 @@
       most populated one. That is the entire mechanism that stops the archive
       collapsing onto one point, and it is what the shading below shows.
     </p>
+
+    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
 
     <div class="instrument">
       <section class="stage-wrap">
@@ -103,9 +103,13 @@
           <h2>Problem</h2>
           <div class="panel-body">
             <div class="field">
-              <label for="benchmark">Objectives</label>
+              <div class="field-head">
+                <label for="benchmark">Objectives</label>
+                <span class="hint" tabindex="0" aria-describedby="benchNote"
+                  >i<span class="hint-body" id="benchNote"></span
+                ></span>
+              </div>
               <select id="benchmark"></select>
-              <p class="note" id="benchNote"></p>
             </div>
             <div class="field field-pair">
               <div class="field">

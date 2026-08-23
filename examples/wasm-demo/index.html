@@ -35,6 +35,8 @@
         #lower #upper     <input type=number> bounds
         #levy             <input type=checkbox> Levy walk on the lone branch
         #focus            <select> which dragonfly's neighbourhood to draw
+        #showOptimum      <input type="checkbox"> draw the known minimiser
+        #optimumKey       its legend entry; hidden when none is known
         #run #rerun #newSeed   buttons
 
         #play             play/pause toggle, gets aria-pressed
@@ -66,8 +68,6 @@
       </nav>
     </header>
 
-    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
-
     <p class="lede">
       Everything below is computed by
       <strong>github.com/CWBudde/dragonfly</strong> compiled to
@@ -78,6 +78,8 @@
       alignment and cohesion alone, or, if it has no neighbours either, it walks
       away by Lévy flight.
     </p>
+
+    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
 
     <div class="instrument">
       <section class="stage-wrap">
@@ -111,7 +113,15 @@
           <li><span class="key" style="background: var(--food)"></span>food X⁺</li>
           <li><span class="key" style="background: var(--enemy)"></span>enemy X⁻</li>
           <li style="color: var(--swarm)"><span class="key square"></span>neighbourhood r</li>
+          <li id="optimumKey" style="color: var(--ok)"><span class="key cross">×</span>known minimum</li>
         </ul>
+
+        <div class="stage-options">
+          <label
+            ><input type="checkbox" id="showOptimum" checked />Mark the known
+            minimum</label
+          >
+        </div>
 
         <p class="stage-note" id="projectionNote"></p>
       </section>
@@ -121,9 +131,13 @@
           <h2>Problem</h2>
           <div class="panel-body">
             <div class="field">
-              <label for="benchmark">Objective</label>
+              <div class="field-head">
+                <label for="benchmark">Objective</label>
+                <span class="hint" tabindex="0" aria-describedby="benchNote"
+                  >i<span class="hint-body" id="benchNote"></span
+                ></span>
+              </div>
               <select id="benchmark"></select>
-              <p class="note" id="benchNote"></p>
             </div>
             <div class="field field-pair">
               <div class="field">
@@ -136,7 +150,18 @@
               </div>
             </div>
             <div class="field">
-              <label for="dimensions">Dimensions</label>
+              <div class="field-head">
+                <label for="dimensions">Dimensions</label>
+                <span class="hint" tabindex="0" aria-describedby="dimensionsNote"
+                  >i<span class="hint-body" id="dimensionsNote"
+                    >How many variables the objective takes. The swarm searches
+                    all of them; the stage can only draw two, so above 2-D the
+                    heatmap is a slice through the remaining axes — pinned at
+                    the known minimiser where one exists, and it says so
+                    underneath when it is not.</span
+                  ></span
+                >
+              </div>
               <input type="number" id="dimensions" min="2" value="2" />
             </div>
           </div>
@@ -156,22 +181,51 @@
               </div>
             </div>
             <div class="field">
-              <label for="boundary">Boundary</label>
+              <div class="field-head">
+                <label for="boundary">Boundary</label>
+                <span class="hint" tabindex="0" aria-describedby="boundaryNote"
+                  >i<span class="hint-body" id="boundaryNote"></span
+                ></span>
+              </div>
               <select id="boundary"></select>
-              <p class="note" id="boundaryNote"></p>
             </div>
             <div class="field">
-              <label for="levy">
-                <input
-                  type="checkbox"
-                  id="levy"
-                  checked
-                  style="width: auto; margin-right: 0.4rem"
-                />Lévy walk when alone
-              </label>
+              <div class="field-head">
+                <label for="levy">
+                  <input
+                    type="checkbox"
+                    id="levy"
+                    checked
+                    style="width: auto; margin-right: 0.4rem"
+                  />Lévy walk when alone
+                </label>
+                <span class="hint" tabindex="0" aria-describedby="levyNote"
+                  >i<span class="hint-body" id="levyNote"
+                    >The third branch of the step update. A dragonfly with the
+                    food source out of range and no neighbours either has
+                    nothing to steer by, so the paper moves it by a Lévy flight
+                    — a heavy-tailed random walk, mostly small hops with the
+                    occasional long one. Switch it off and such a dragonfly
+                    simply holds still, which is what most ports of DA
+                    accidentally do.</span
+                  ></span
+                >
+              </div>
             </div>
             <div class="field">
-              <label for="focus">Draw neighbourhood of</label>
+              <div class="field-head">
+                <label for="focus">Draw neighbourhood of</label>
+                <span class="hint" tabindex="0" aria-describedby="focusNote"
+                  >i<span class="hint-body" id="focusNote"
+                    >Rings one dragonfly and draws the box within which it
+                    counts others as neighbours. The box is square because the
+                    neighbour test is per-dimension — every component of the
+                    distance must be within r — and it grows with the iteration
+                    count, which is why the swarm branch dies out early in a
+                    run.</span
+                  ></span
+                >
+              </div>
               <select id="focus"></select>
             </div>
           </div>

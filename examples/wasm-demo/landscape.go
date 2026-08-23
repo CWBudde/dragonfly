@@ -61,6 +61,11 @@ func jsLandscape(opts js.Value) any {
 		}
 	}
 
+	// The two plotted coordinates of the minimizer, read before the sampling
+	// loop writes over them. The page draws them as a marker so the swarm can
+	// be watched against the answer rather than only against the color ramp.
+	optimumX, optimumY := position[axisX], position[axisY]
+
 	samples := make([]float32, 0, width*height)
 	minimum := math.Inf(1)
 	maximum := math.Inf(-1)
@@ -115,6 +120,12 @@ func jsLandscape(opts js.Value) any {
 		// page says which kind of picture it is showing.
 		"throughOptimum": throughOptimum,
 		"optimum":        optionalNumber(spec.optimumValue(dimensions)),
+
+		// Where that minimizer sits on the plotted plane. Absent rather than
+		// zeroed when none is known: (0,0) is a plausible-looking lie for a
+		// function whose optimum nobody has tabulated.
+		"optimumX": optionalNumber(optimumX, throughOptimum),
+		"optimumY": optionalNumber(optimumY, throughOptimum),
 	}
 
 	putFloats(response, out, "values", normalized)

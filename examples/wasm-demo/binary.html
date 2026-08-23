@@ -54,8 +54,6 @@
       </nav>
     </header>
 
-    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
-
     <p class="lede">
       BDA changes exactly one thing about the algorithm: the step vector
       <code>ΔX</code> is computed the same way as in the continuous case, and
@@ -65,6 +63,8 @@
       update — is unchanged. The curve on the right is that probability, and the
       matrix below is what it produced.
     </p>
+
+    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
 
     <div class="instrument">
       <section class="stage-wrap">
@@ -107,9 +107,13 @@
           <h2>Problem</h2>
           <div class="panel-body">
             <div class="field">
-              <label for="problem">Objective</label>
+              <div class="field-head">
+                <label for="problem">Objective</label>
+                <span class="hint" tabindex="0" aria-describedby="problemNote"
+                  >i<span class="hint-body" id="problemNote"></span
+                ></span>
+              </div>
               <select id="problem"></select>
-              <p class="note" id="problemNote"></p>
             </div>
             <div class="field field-pair">
               <div class="field">
@@ -132,9 +136,13 @@
           <h2>Transfer function</h2>
           <div class="panel-body">
             <div class="field">
-              <label for="transfer">T(Δx)</label>
+              <div class="field-head">
+                <label for="transfer">T(Δx)</label>
+                <span class="hint" tabindex="0" aria-describedby="transferNote"
+                  >i<span class="hint-body" id="transferNote"></span
+                ></span>
+              </div>
               <select id="transfer"></select>
-              <p class="note" id="transferNote"></p>
             </div>
             <canvas id="transferPlot" width="640" height="300"></canvas>
           </div>

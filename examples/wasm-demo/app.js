@@ -29,6 +29,8 @@
     upper: $("upper"),
     levy: $("levy"),
     focus: $("focus"),
+    showOptimum: $("showOptimum"),
+    optimumKey: $("optimumKey"),
 
     run: $("run"),
     rerun: $("rerun"),
@@ -53,6 +55,9 @@
     info: null,
     run: null,
     heatmap: null,
+    // [x, y] of the known minimiser on the plotted plane, or null when the
+    // function has none for this dimension count. Set by paintLandscape.
+    optimum: null,
     branchMix: null,
     transport: null,
     frame: 0,
@@ -166,6 +171,19 @@
 
     state.heatmap = Render.heatmap(result.values, result.width, result.height);
 
+    /*
+     * Go reports the minimiser only when one is actually tabulated for this
+     * dimension count; Michalewicz above 2-D has none. Absent means the marker
+     * and its legend entry both disappear rather than pointing at the middle
+     * of the domain the slice fell back to.
+     */
+    const known =
+      typeof result.optimumX === "number" && typeof result.optimumY === "number";
+
+    state.optimum = known ? [result.optimumX, result.optimumY] : null;
+    el.optimumKey.hidden = !known;
+    el.showOptimum.disabled = !known;
+
     if (result.projected && !result.throughOptimum) {
       el.projectionNote.textContent =
         `${result.dimensions}-D slice: no minimiser is known for this function above two ` +
@@ -274,6 +292,7 @@
       enemy: [result.enemyTrail[t * 2], result.enemyTrail[t * 2 + 1]],
       foodTrail: result.foodTrail,
       enemyTrail: result.enemyTrail,
+      optimum: el.showOptimum.checked ? state.optimum : null,
     });
 
     Render.convergence(el.convergence, result.convergence, t);
@@ -303,6 +322,8 @@
     });
 
     el.focus.addEventListener("change", draw);
+
+    el.showOptimum.addEventListener("change", draw);
 
     el.run.addEventListener("click", execute);
 

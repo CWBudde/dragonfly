@@ -27,6 +27,7 @@ window.Render = (function () {
     swarm: token("--swarm", "#3fd0c9"),
     food: token("--food", "#f0a63c"),
     enemy: token("--enemy", "#e0568a"),
+    ok: token("--ok", "#59d98b"),
     branch: [
       token("--branch-food", "#f0a63c"),
       token("--branch-swarm", "#3fd0c9"),
@@ -158,6 +159,16 @@ window.Render = (function () {
     trail(ctx, p, frame.enemyTrail, frame.index, COLOR.enemy);
 
     /*
+     * The known minimiser, drawn under the swarm so a dragonfly sitting on it
+     * is not hidden by it. It is a cross rather than a ringed glyph because
+     * the two ringed glyphs are spoken for: X⁺ and X⁻ are results of the run,
+     * this is the answer the run is being watched against.
+     */
+    if (frame.optimum) {
+      cross(ctx, p.x(frame.optimum[0]), p.y(frame.optimum[1]), COLOR.ok);
+    }
+
+    /*
      * The neighbourhood is a square because the neighbour test is
      * per-dimension: all(|a_k - b_k| <= r). Drawing a circle here would be a
      * confident picture of the wrong algorithm.
@@ -195,6 +206,23 @@ window.Render = (function () {
 
     marker(ctx, p.x(frame.food[0]), p.y(frame.food[1]), COLOR.food, "+");
     marker(ctx, p.x(frame.enemy[0]), p.y(frame.enemy[1]), COLOR.enemy, "-");
+  }
+
+  function cross(ctx, x, y, color) {
+    const arm = 6;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(x - arm, y - arm);
+    ctx.lineTo(x + arm, y + arm);
+    ctx.moveTo(x + arm, y - arm);
+    ctx.lineTo(x - arm, y + arm);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // The food source and the enemy are drawn as ringed glyphs rather than
