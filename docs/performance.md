@@ -229,23 +229,38 @@ happens at all unless an observer is registered.
 
 ## MODA and the archive
 
-Four multi-objective benchmarks, 10-D, 50 iterations, `NPop` 30:
+Four multi-objective benchmarks, 10-D, 50 iterations, `NPop` 30, `ArchiveSize` 100, median of
+five samples, before and after the archive hot path was reworked:
 
-| Problem      | Time/op |   Bytes/op | Allocs/op |
-| ------------ | ------: | ---------: | --------: |
-| `ZDT2`       | 6.44 ms |  1,477,317 |    18,048 |
-| `ZDT3`       | 7.76 ms |  1,694,148 |    21,438 |
-| `ZDT1`       | 9.52 ms |  2,099,364 |    33,191 |
-| `SchafferN1` | 61.0 ms | 17,872,435 |   378,970 |
+| Problem      | Time/op before |    after | Bytes/op before |     after | Allocs/op before |  after |
+| ------------ | -------------: | -------: | --------------: | --------: | ---------------: | -----: |
+| `ZDT2`       |        8.66 ms |  7.14 ms |       1,505,850 | 1,435,459 |           18,102 | 16,061 |
+| `ZDT3`       |       10.13 ms |  7.18 ms |       1,722,906 | 1,444,970 |           21,492 | 16,134 |
+| `ZDT1`       |       11.27 ms |  7.99 ms |       2,131,404 | 1,498,490 |           33,245 | 16,947 |
+| `SchafferN1` |       75.76 ms | 19.72 ms |      17,921,297 | 1,972,058 |          379,024 | 22,534 |
 
-SchafferN1 costs six to ten times what the ZDT problems cost, on a **one-dimensional** problem
-with a trivial objective. The reason is the archive, not the search: SchafferN1's front is
-one-dimensional and dense, so almost every candidate is non-dominated, the archive fills and
-stays full, and `Add`'s domination sweep plus `updateGrid`'s full reassignment run at capacity
-on every insert.
+SchafferN1 used to cost six to ten times what the ZDT problems cost, on a **one-dimensional**
+problem with a trivial objective. The reason was the archive, not the search: SchafferN1's front
+is one-dimensional and dense, so almost every candidate is non-dominated, the archive fills and
+stays full, and every insert at capacity ran the grid maintenance twice — once from `Add` and
+once more from the eviction — with a fresh cell index allocated per member each time, and
+grouped the archive by hypercube through a freshly built and sorted map.
 
-The lesson for a real multi-objective problem: **archive maintenance, not the swarm, is what
-MODA pays for**, and `ArchiveSize` is therefore a cost parameter as well as a quality one.
+Three changes removed that work without changing a single archived value:
+`updateGrid` reuses each member's index array and skips the reassignment sweep entirely when the
+recomputed bounds are bit-identical, which they usually are; `occupiedCells` groups the archive
+with a counting sort over the grid keys into reused buffers instead of a map; and `Add` compacts
+the survivors in place rather than allocating a new slice of every member. Together they cut
+SchafferN1 to a quarter of its time and a sixteenth of its allocations, and the ZDT problems
+gain too, in proportion to how often their archives sit at capacity.
+
+What this does not change is the accept rate. Nearly every SchafferN1 candidate is still
+non-dominated, and the archive is still full from the first few iterations — that is a property
+of the problem's front, not something the archive can optimize away. `Add`'s domination sweep is
+still `O(archive)` per candidate, which is why SchafferN1 remains the most expensive of the four.
+
+The lesson for a real multi-objective problem is unchanged: **archive maintenance, not the swarm,
+is what MODA pays for**, and `ArchiveSize` is therefore a cost parameter as well as a quality one.
 
 ## CPU and memory profiles
 

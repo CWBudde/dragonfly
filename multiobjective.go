@@ -196,6 +196,18 @@ const (
 	DefaultArchiveSize = 100
 )
 
+// The bucketing budget occupiedCells applies before it counting-sorts the
+// archive by cell key: the key space may be countingKeyBase plus
+// countingKeySlack per archived solution, and never more than maxCountingKeys.
+// A two- or three-objective run on the default grid stays well inside it; a
+// high-dimensional objective vector falls back to the comparison sort, which is
+// also what keeps the key-space product from overflowing.
+const (
+	countingKeyBase  = 256
+	countingKeySlack = 16
+	maxCountingKeys  = 1 << 16
+)
+
 // ParetoArchive holds a mutually non-dominated set of solutions, partitioned
 // into a hypercube grid over objective space.
 //
@@ -209,6 +221,11 @@ type ParetoArchive struct {
 	// Solutions is the archive contents, in insertion order. Every member is
 	// mutually non-dominated with every other; that invariant is restored by
 	// each mutation, not merely at the end of a run.
+	//
+	// A mutation compacts the survivors in place rather than allocating a fresh
+	// slice, so a slice held across one is not a snapshot of the archive as it
+	// was. Read the field again after any Add or UpdateFromPopulation, or copy
+	// it if an older view is needed.
 	Solutions []*ParetoSolution
 
 	// lowerBounds and upperBounds are the per-objective extent of the current
@@ -216,6 +233,15 @@ type ParetoArchive struct {
 	// archive does.
 	lowerBounds []float64
 	upperBounds []float64
+
+	// cellBuf, memberBuf and orderBuf are occupiedCells' scratch space. They
+	// are reused across calls, which is what keeps grouping the archive by
+	// hypercube -- something every insert and every selection does -- free of
+	// allocation. See occupiedCells for the lifetime this imposes on its
+	// result.
+	cellBuf   []hypercubeCell
+	memberBuf []int
+	countBuf  []int
 
 	// Beta, Gamma and Delta are the roulette exponents; see the UNVERIFIED note
 	// on DefaultArchiveBeta.
@@ -306,7 +332,12 @@ func (pa *ParetoArchive) Add(solution *ParetoSolution, rng *rand.Rand) bool {
 		}
 	}
 
-	kept := make([]*ParetoSolution, 0, len(pa.Solutions)+1)
+	// The survivors are compacted in place: the write index never overtakes the
+	// read index, so the archive keeps its own backing array and an accepted
+	// insert does not allocate a fresh slice of every member on the way past.
+	// The consequence is that a slice of Solutions taken before the insert is
+	// not a snapshot of it -- read the field again after any mutation.
+	kept := pa.Solutions[:0]
 
 	for _, existing := range pa.Solutions {
 		if !constrainedDominates(solution, existing) {
@@ -314,7 +345,15 @@ func (pa *ParetoArchive) Add(solution *ParetoSolution, rng *rand.Rand) bool {
 		}
 	}
 
-	kept = append(kept, solution.clone())
+	inserted := solution.clone()
+
+	// The clone carries whatever cell coordinate the candidate happened to hold,
+	// which means nothing in this archive. Clearing it is what marks the member
+	// as the one updateGrid still has to assign.
+	inserted.GridIndex = nil
+	inserted.GridKey = 0
+
+	kept = append(kept, inserted)
 	pa.Solutions = kept
 
 	pa.updateGrid()
@@ -375,41 +414,86 @@ func (pa *ParetoArchive) updateGrid() {
 		return
 	}
 
-	objectives := len(pa.Solutions[0].ObjectiveValues)
-	lower := make([]float64, objectives)
-	upper := make([]float64, objectives)
+	boundsChanged := pa.recomputeBounds()
 
-	for m := range objectives {
-		lower[m] = math.Inf(1)
-		upper[m] = math.Inf(-1)
-	}
-
+	// A cell assignment is a pure function of the bounds and the solution's own
+	// objective vector, so bit-identical bounds mean bit-identical indices for
+	// every member that already carries one. Only the members this archive has
+	// not indexed yet -- the freshly inserted candidate, whose index Add clears
+	// -- need the assignment. That turns the common case, an insert that does
+	// not widen the front, from a full sweep into a single assignment.
 	for _, solution := range pa.Solutions {
-		for m := 0; m < objectives && m < len(solution.ObjectiveValues); m++ {
-			lower[m] = math.Min(lower[m], solution.ObjectiveValues[m])
-			upper[m] = math.Max(upper[m], solution.ObjectiveValues[m])
+		if !boundsChanged && len(solution.GridIndex) == len(solution.ObjectiveValues) {
+			continue
 		}
-	}
 
-	pa.lowerBounds = lower
-	pa.upperBounds = upper
-
-	for _, solution := range pa.Solutions {
-		solution.GridIndex = pa.gridIndexFor(solution.ObjectiveValues)
+		solution.GridIndex = pa.gridIndexInto(solution.GridIndex, solution.ObjectiveValues)
 		solution.GridKey = pa.gridKeyFor(solution.GridIndex)
 	}
 }
 
-// gridIndexFor returns the hypercube coordinate of an objective vector under
-// the current bounds.
+// recomputeBounds refreshes lowerBounds and upperBounds from the current
+// contents and reports whether either moved.
+//
+// It writes through the existing backing arrays rather than allocating a pair
+// per call, and compares the old value against the new one before overwriting
+// it. The comparison is exact on purpose: the question is not whether the
+// bounds are close but whether every derived index is unchanged, and that holds
+// exactly when the bounds are bit-identical.
+func (pa *ParetoArchive) recomputeBounds() bool {
+	objectives := len(pa.Solutions[0].ObjectiveValues)
+
+	changed := len(pa.lowerBounds) != objectives || len(pa.upperBounds) != objectives
+	if changed {
+		pa.lowerBounds = make([]float64, objectives)
+		pa.upperBounds = make([]float64, objectives)
+	}
+
+	for m := range objectives {
+		lower := math.Inf(1)
+		upper := math.Inf(-1)
+
+		for _, solution := range pa.Solutions {
+			if m >= len(solution.ObjectiveValues) {
+				continue
+			}
+
+			lower = math.Min(lower, solution.ObjectiveValues[m])
+			upper = math.Max(upper, solution.ObjectiveValues[m])
+		}
+
+		if lower != pa.lowerBounds[m] || upper != pa.upperBounds[m] {
+			changed = true
+		}
+
+		pa.lowerBounds[m] = lower
+		pa.upperBounds[m] = upper
+	}
+
+	return changed
+}
+
+// gridIndexInto writes the hypercube coordinate of an objective vector under
+// the current bounds into dst, reusing dst's backing array when it is large
+// enough. The archive reassigns the same solutions call after call, so reusing
+// each solution's existing index array keeps a grid refresh allocation-free.
 //
 // Bin m has width (upper[m]-lower[m])/NGrid, and the index is the floor of the
 // normalized coordinate, clamped to [0, NGrid-1] so that a value sitting exactly
 // on the upper bound lands in the last bin rather than one past it. A degenerate
 // objective, where every archived solution scores the same, has every solution
 // in bin zero.
-func (pa *ParetoArchive) gridIndexFor(values []float64) []int {
-	index := make([]int, len(values))
+func (pa *ParetoArchive) gridIndexInto(dst []int, values []float64) []int {
+	var index []int
+
+	if cap(dst) >= len(values) {
+		index = dst[:len(values)]
+		for m := range index {
+			index[m] = 0
+		}
+	} else {
+		index = make([]int, len(values))
+	}
 
 	for m, value := range values {
 		if m >= len(pa.lowerBounds) || m >= len(pa.upperBounds) {
@@ -449,27 +533,140 @@ type hypercubeCell struct {
 	Key     int
 }
 
-// occupiedCells groups the archive by hypercube, in ascending key order.
+// occupiedCells groups the archive by hypercube, in ascending key order, with
+// each cell's members in ascending archive-index order.
 //
-// The ordering is deliberate and load-bearing: the cells are collected through a
-// map, and Go randomizes map iteration, so returning them unsorted would make
-// every roulette draw depend on the map's internal ordering and a seeded run
-// would not reproduce.
+// The ordering is deliberate and load-bearing: every roulette draw walks these
+// cells, so an order that depended on anything but the archive's contents --
+// Go's randomized map iteration, say -- would stop a seeded run reproducing.
+//
+// The result borrows the archive's scratch buffers and is only valid until the
+// next call or the next mutation. Every caller consumes it immediately, which
+// is what lets the grouping be allocation-free on the hot path.
 func (pa *ParetoArchive) occupiedCells() []hypercubeCell {
-	byKey := make(map[int][]int, len(pa.Solutions))
+	count := len(pa.Solutions)
 
-	for i, solution := range pa.Solutions {
-		byKey[solution.GridKey] = append(byKey[solution.GridKey], i)
+	pa.memberBuf = growInts(pa.memberBuf, count)
+	members := pa.memberBuf[:count]
+
+	if !pa.countingOrder(members) {
+		pa.sortingOrder(members)
 	}
 
-	cells := make([]hypercubeCell, 0, len(byKey))
-	for key, members := range byKey {
-		cells = append(cells, hypercubeCell{Members: members, Key: key})
+	cells := pa.cellBuf[:0]
+
+	for start := 0; start < count; {
+		key := pa.Solutions[members[start]].GridKey
+
+		end := start + 1
+		for end < count && pa.Solutions[members[end]].GridKey == key {
+			end++
+		}
+
+		cells = append(cells, hypercubeCell{Members: members[start:end], Key: key})
+		start = end
 	}
 
-	sort.Slice(cells, func(i, j int) bool { return cells[i].Key < cells[j].Key })
+	pa.cellBuf = cells
 
 	return cells
+}
+
+// countingOrder fills members with the archive indices ordered by (cell key,
+// index) using a counting sort over the key space, and reports whether it
+// could.
+//
+// The keys are small integers -- NGrid^objectives of them -- so for the usual
+// two- or three-objective problem the whole grid is a hundred or a thousand
+// buckets and the grouping is linear. It declines, leaving the comparison sort
+// to do the work, when the key space is too large to bucket or when a key falls
+// outside it.
+func (pa *ParetoArchive) countingOrder(members []int) bool {
+	keyRange, ok := pa.keySpace()
+	if !ok {
+		return false
+	}
+
+	pa.countBuf = growInts(pa.countBuf, keyRange)
+	counts := pa.countBuf[:keyRange]
+	clear(counts)
+
+	for _, solution := range pa.Solutions {
+		if solution.GridKey < 0 || solution.GridKey >= keyRange {
+			return false
+		}
+
+		counts[solution.GridKey]++
+	}
+
+	offset := 0
+	for key, occupancy := range counts {
+		counts[key] = offset
+		offset += occupancy
+	}
+
+	// Walking the archive in index order places each cell's members in
+	// ascending index order, which is the order the cells are expected to
+	// carry.
+	for i, solution := range pa.Solutions {
+		members[counts[solution.GridKey]] = i
+		counts[solution.GridKey]++
+	}
+
+	return true
+}
+
+// keySpace reports the number of distinct cell keys the current grid can
+// produce, and whether that is few enough to bucket. It refuses a key space
+// beyond maxCountingKeys, which is also what keeps the exponentiation from
+// overflowing on a high-dimensional objective vector.
+func (pa *ParetoArchive) keySpace() (int, bool) {
+	if pa.NGrid <= 0 || len(pa.Solutions) == 0 {
+		return 0, false
+	}
+
+	// A key space much larger than the archive itself costs more to clear than
+	// the comparison sort costs to run, so the budget scales with the contents
+	// and maxCountingKeys is only the hard ceiling.
+	budget := min(countingKeyBase+countingKeySlack*len(pa.Solutions), maxCountingKeys)
+	keyRange := 1
+
+	for range len(pa.Solutions[0].ObjectiveValues) {
+		keyRange *= pa.NGrid
+		if keyRange > budget {
+			return 0, false
+		}
+	}
+
+	return keyRange, true
+}
+
+// sortingOrder fills members with the archive indices ordered by (cell key,
+// index) with a comparison sort. It is countingOrder's fallback, and the
+// comparison is a total order, so the result is deterministic.
+func (pa *ParetoArchive) sortingOrder(members []int) {
+	for i := range members {
+		members[i] = i
+	}
+
+	sort.Slice(members, func(i, j int) bool {
+		left, right := members[i], members[j]
+		if key := pa.Solutions[left].GridKey; key != pa.Solutions[right].GridKey {
+			return key < pa.Solutions[right].GridKey
+		}
+
+		return left < right
+	})
+}
+
+// growInts returns a slice of at least the given length, reusing the buffer
+// when it is already large enough.
+func growInts(buf []int, length int) []int {
+	if cap(buf) >= length {
+		return buf
+	}
+
+	return make([]int, length)
 }
 
 // selectSparse draws a solution from a sparsely populated hypercube, weighting

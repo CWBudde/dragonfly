@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the objective calls out through `parallelFor`; every random draw stays on the calling
   goroutine, so a seeded run is bit-identical with parallelism on or off.
 
+### Changed
+
+- Pareto archive maintenance is substantially cheaper, with the archive contents
+  bit-identical. `updateGrid` reuses each member's index array and skips the reassignment
+  sweep when the bounds have not moved, `occupiedCells` counting-sorts into reused buffers
+  instead of building and sorting a map, and `Add` compacts survivors in place. The
+  SchafferN1 MODA benchmark dropped from 75.8 ms and 379,024 allocations per operation to
+  19.7 ms and 22,534; ZDT1 from 11.3 ms and 33,245 to 8.0 ms and 16,947. One consequence is
+  worth knowing: a `ParetoArchive.Solutions` slice held across a mutation is no longer a
+  snapshot of the archive as it was.
+
 ### Fixed
 
 - `Levy` no longer panics on an empty position vector, and `Ackley` and `HappyCat` no

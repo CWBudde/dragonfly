@@ -227,6 +227,12 @@ every dimension, 30 dimensions in the original suite.
 ZDT3 is the one an archive that collapses onto a single region fails first: its five
 disconnected pieces cannot be covered by a front approximation that has clustered.
 
+The 30 dimensions of the original suite are beyond what this implementation recovers. MODA
+reaches ZDT1's front exactly at `d = 5` and comes close at `d = 10` given a long enough run, but
+at `d = 30` the archive stays non-dominated while sitting well off the front, and it stops
+improving partway through rather than running out of budget. The measurements and the reason are
+in [MODA's performance section](algorithms/moda.md#performance).
+
 ### SchafferN1
 
 ```

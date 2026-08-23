@@ -501,11 +501,28 @@ statistical question with a tolerance attached.
       `EnemyWeight` is pinned off `WeightAuto`, which the godoc now states too. It stays
       because the paper and `DA.m` carry both rules and a reader checking the code against
       them should find it where they expect it.
-- [ ] MODA recovers the ZDT fronts only at low dimensionality. At the ZDT suite's original
+- [x] MODA recovers the ZDT fronts only at low dimensionality. At the ZDT suite's original
       30 dimensions (NPop 100, 1000 iterations) the archive is non-dominated but its lowest
       `f2` is 1.39, well off the true front. The Phase 6 gate is met at the tests' `d = 5`
-      (median distance to front 0.000). Worth understanding before claiming MODA parity
-      with the paper's results.
+      (median distance to front 0.000). **Measured 2026-08-23; the figure is confirmed and
+      the cause is a stall, not an unfinished run.** ZDT1 with NPop 100, five seeds, median
+      distance to the analytic front: `d = 5` -> 0.000, `d = 10` -> 0.38-0.92,
+      `d = 20` -> 1.00-1.51, `d = 30` -> 1.56-1.68 (lowest `f2` 1.26-1.38, so 1.39 is within
+      seed noise). It is not a `d = 30` cliff -- the degradation is already visible at
+      `d = 10`. Raising the budget to 10000 iterations improves `d = 30` to a median of
+      0.38-0.46 and `d = 10` to 0.027-0.043, but instrumented trajectories show why that is
+      not continued convergence: the running minimum of ZDT1's `g` term freezes after
+      roughly the first half of every run (at `d = 30, T = 40000` the best `f2` is unchanged
+      from iteration 2000 to iteration 40000), and a 4x population buys almost nothing. The
+      schedules are `t/T`-relative, so a longer `T` only stretches the exploratory phase
+      before the same stall. The likely mechanism is `convergenceFactor` (weights.go): `mc`
+      reaches zero at `t = T/2`, zeroing `s`, `a`, `c` and `e`, after which only inertia and
+      the food term move a dragonfly -- and the food is drawn from the _sparsest_ occupied
+      hypercube, which seeks spread rather than convergence. The second half of a run can
+      redistribute along the archive it has but cannot lower `g`. Recorded in the docs; no
+      parity with the paper's 30-dimensional results is claimed, and the hypercube
+      parameters were deliberately not tuned during the investigation since they are still
+      unverified against `MODA.m`.
 - [x] MODA honours neither `EnableParallel` nor `Config.Constraints` nor early stopping.
       All three are wired for DA and BDA only. **Resolved 2026-08-23: all three are wired,
       with two deliberate rejections.** Constraints go through `constrainedDominates`,
@@ -519,8 +536,22 @@ statistical question with a tolerance attached.
       `Convergence.TargetCost` and `ConstraintHandlingPenalty` have no multi-objective
       reading and are now rejected by `validateMultiObjectiveConfig` rather than silently
       ignored.
-- [ ] `SchafferN1` costs 6-10x the ZDT benchmarks despite a trivial 1-D objective -- that
+- [x] `SchafferN1` costs 6-10x the ZDT benchmarks despite a trivial 1-D objective -- that
       is archive maintenance at capacity, not search. Relevant to any `ArchiveSize` tuning.
+      **Resolved 2026-08-23: 3.8x faster, 6% of the allocations, with the archive contents
+      bit-identical.** SchafferN1 went from 75.8 ms / 379,024 allocs per op to 19.7 ms /
+      22,534, and is now ~2.5x ZDT1 rather than 6-9x; ZDT1 improved from 11.3 ms / 33,245 to
+      8.0 ms / 16,947. Three changes: `updateGrid` reuses each member's index array and
+      skips the reassignment sweep entirely when the recomputed bounds are bit-identical,
+      so only the newly inserted member is indexed; `occupiedCells` counting-sorts into
+      reused buffers instead of building a map and comparison-sorting it, falling back to
+      `sort.Slice` when the key space is too large; and `Add` compacts survivors in place
+      rather than allocating a fresh slice of every member per accepted insert (documented
+      consequence: a `Solutions` slice held across a mutation is not a snapshot). What this
+      does _not_ change is the accept rate -- on SchafferN1 nothing dominates anything, so
+      the archive is permanently at capacity, and that is a property of the problem's front.
+      `TestMODAArchiveSnapshotIsExact` pins two runs element-for-element at exact float
+      equality, which is what makes the optimization safe to believe.
 
 ### Inherited benchmark defects (shared with Mayfly)
 

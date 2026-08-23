@@ -252,26 +252,53 @@ At 5 dimensions MODA recovers ZDT1's front essentially exactly and covers most o
 five disconnected pieces are harder to sit on, which is why its tolerances in the test suite
 are looser.
 
-Dimensionality is the binding constraint, and the honest number is less flattering. At the ZDT
-suite's original 30 dimensions, with `NPop` 100 and 1000 iterations, the archive holds 44
-mutually non-dominated ZDT1 solutions but its lowest `f2` is 1.39 — the true front has
-`f2 ∈ [0, 1]`. The run has found the shape of the trade-off and not the front itself. This is
-the same exploitation weakness [standard DA](standard-da.md#performance) has, seen from the
-multi-objective side: the convergence factor reaches zero at the halfway mark and the swarm
-stops closing the distance. SchafferN1, a one-variable problem, is solved outright.
+Dimensionality is the binding constraint, and the honest number is less flattering. ZDT1 with
+`NPop` 100, five seeds, median distance to the analytic front:
+
+| Dimensions | 1000 iterations | 10000 iterations |
+| ---------: | --------------: | ---------------: |
+|          5 |           0.000 |            0.000 |
+|         10 |     0.381–0.923 |      0.027–0.043 |
+|         20 |     1.004–1.509 |      0.115–0.561 |
+|         30 |     1.563–1.683 |      0.376–0.459 |
+
+At 30 dimensions and 1000 iterations the archive holds 44–96 mutually non-dominated solutions
+but its lowest `f2` is 1.26–1.38, where the true front has `f2 ∈ [0, 1]`. The run has found the
+shape of the trade-off and not the front itself. It is not a 30-dimensional cliff either — the
+degradation is already plain at `d = 10`.
+
+**This is a stall, not an unfinished run.** Instrumenting a run to record the running minimum of
+ZDT1's `g` term shows it freezing after roughly the first half of the schedule and never moving
+again: at `d = 30` with 40000 iterations the best `f2` is unchanged from iteration 2000 onward.
+A longer budget helps only because the schedules are `t/T`-relative, so a larger `T` stretches
+the exploratory phase before the same stall; a 4× population barely moves the number at all.
+The mechanism is the one [standard DA](standard-da.md#performance) has, seen from the
+multi-objective side: the convergence factor reaches zero at `t = T/2`, which zeroes separation,
+alignment, cohesion and the enemy term, leaving only inertia and the food term — and MODA draws
+its food from the _sparsest_ occupied hypercube, so what remains of the run seeks spread rather
+than convergence. The second half of a run can redistribute along the archive it already has,
+but it cannot lower `g`.
+
+No parity with the paper's 30-dimensional ZDT results is claimed. The hypercube parameters
+(`β`, `γ`, `δ`, `NGrid`) are still unverified against the author's `MODA.m` and were deliberately
+left alone while measuring this, so that the number above reports the implementation rather than
+a tuning pass. SchafferN1, a one-variable problem, is solved outright.
 
 Cost, on Linux/amd64 with Go 1.26.0 on an AMD Ryzen 5 4600H:
 `BenchmarkOptimizeMultiObjectiveBaseline` — 30-dimensional ZDT1, 100 iterations, `NPop` 40 — is
-55.7 ms and 59,133 allocations per run, against 49.8 ms and 24,927 for the single-objective
+57.3 ms and 42,725 allocations per run, against 49.8 ms and 24,927 for the single-objective
 anchor. The extra allocations are the archive: every accepted candidate is stored as a deep
-copy, and `updateGrid` reassigns every cell on every mutation. `MODAVariant.EstimatedOverhead()`
-reports `1.2`, which the measurement supports.
+copy. `MODAVariant.EstimatedOverhead()` reports `1.2`, which the measurement supports.
 
-One measured surprise worth knowing: `BenchmarkOptimizeSchafferN1_MODA` is 61.0 ms against
-6–10 ms for the ZDT problems at the same settings. SchafferN1 is one-dimensional, so its front
-is dense and the archive stays full, and a full archive makes `Add`'s domination sweep and
-`updateGrid`'s reassignment the dominant cost. Archive maintenance, not the swarm, is what MODA
-pays for.
+One measured surprise worth knowing: `BenchmarkOptimizeSchafferN1_MODA` is 19.7 ms against
+7 ms for the ZDT problems at the same settings, and it used to be 75.8 ms against 9–11 ms.
+SchafferN1 is one-dimensional, so its front is dense and the archive stays full, and a full
+archive is what makes archive maintenance the dominant cost. Most of that maintenance has since
+been taken out — the grid is no longer rebuilt twice per insert, cell indices are reused rather
+than reallocated, and the hypercube grouping is a counting sort into reused buffers instead of a
+map — but the accept rate is a property of the front, not something the archive can fix, so
+`Add`'s domination sweep still runs against a full archive on every candidate. Archive
+maintenance, not the swarm, is what MODA pays for.
 
 ## When to Use
 
