@@ -442,7 +442,7 @@ parameters are this implementation's choices rather than values read off the aut
 ## Contributing
 
 1. Fork the repository and create a feature branch
-2. Follow the conventions in [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md)
+2. Follow the conventions in [AGENTS.md](AGENTS.md)
 3. Add tests for new behaviour — a new operator wants a hand-computed unit test, not only an
    end-to-end convergence check
 4. Run `just check` and make sure it is green

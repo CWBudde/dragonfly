@@ -141,7 +141,7 @@ and each is explained at length on the page linked beside it.
 
 - **Main README**: [../README.md](../README.md)
 - **Roadmap and specification**: [../PLAN.md](../PLAN.md)
-- **Development guide**: [../CLAUDE.md](../CLAUDE.md) and [../AGENTS.md](../AGENTS.md)
+- **Development guide**: [../AGENTS.md](../AGENTS.md)
 - **Examples**: [../examples/](../examples/)
 - **Feature files**: [../features/](../features/)
 - **Source**: the repository root — the package is flat
