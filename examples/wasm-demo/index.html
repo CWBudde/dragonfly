@@ -35,8 +35,9 @@
         #lower #upper     <input type=number> bounds
         #levy             <input type=checkbox> Levy walk on the lone branch
         #focus            <select> which dragonfly's neighbourhood to draw
-        #showOptimum      <input type="checkbox"> draw the known minimiser
-        #optimumKey       its legend entry; hidden when none is known
+        #showOptimum      <input type="checkbox"> draw the known minimiser;
+                          it lives inside its own legend entry
+        #optimumKey       that entry; hidden when no minimiser is known
         #run #rerun #newSeed   buttons
 
         #play             play/pause toggle, gets aria-pressed
@@ -113,15 +114,15 @@
           <li><span class="key" style="background: var(--food)"></span>food X⁺</li>
           <li><span class="key" style="background: var(--enemy)"></span>enemy X⁻</li>
           <li style="color: var(--swarm)"><span class="key square"></span>neighbourhood r</li>
-          <li id="optimumKey" style="color: var(--ok)"><span class="key cross">×</span>known minimum</li>
+          <li id="optimumKey" class="toggle" style="color: var(--ok)">
+            <label
+              ><input type="checkbox" id="showOptimum" checked /><span
+                class="key cross"
+                >×</span
+              >known minimum</label
+            >
+          </li>
         </ul>
-
-        <div class="stage-options">
-          <label
-            ><input type="checkbox" id="showOptimum" checked />Mark the known
-            minimum</label
-          >
-        </div>
 
         <p class="stage-note" id="projectionNote"></p>
       </section>

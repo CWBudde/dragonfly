@@ -182,7 +182,6 @@
 
     state.optimum = known ? [result.optimumX, result.optimumY] : null;
     el.optimumKey.hidden = !known;
-    el.showOptimum.disabled = !known;
 
     if (result.projected && !result.throughOptimum) {
       el.projectionNote.textContent =

@@ -412,6 +412,7 @@ canvas {
   font-size: 0.76rem;
   letter-spacing: normal;
   line-height: 1.4;
+  text-align: left;
   text-transform: none;
 }
 
@@ -602,34 +603,24 @@ button[aria-pressed="true"] {
   text-align: center;
 }
 
-/* View switches for the stage: what is drawn, not what is computed. */
-.stage-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1.1rem;
-  margin-top: 0.6rem;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--ink-dim);
-}
-
-.stage-options label {
+/*
+ * One legend entry is a switch: the known minimum is the only mark on the
+ * stage that is not a result of the run, so it is the only one worth turning
+ * off. Keeping it in the legend rather than in a row of its own costs no
+ * vertical space, and reads as what it is — a layer toggle.
+ */
+.legend .toggle label {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   cursor: pointer;
 }
 
-.stage-options input[type="checkbox"] {
+.legend .toggle input[type="checkbox"] {
   width: auto;
+  margin: 0;
   padding: 0;
-  accent-color: var(--swarm);
-}
-
-/* Nothing to mark: the switch stays visible, so the absence is legible. */
-.stage-options label:has(input:disabled) {
-  opacity: 0.45;
-  cursor: not-allowed;
+  accent-color: currentcolor;
 }
 
 /* ── secondary panels ───────────────────────────────────────────────────── */
