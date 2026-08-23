@@ -49,8 +49,8 @@ func defaultMaxWorkers() int {
 // You must set ObjectiveFunc, ProblemSize, LowerBound, and UpperBound.
 //
 // It enlarges the swarm and lengthens the run, and it slows the radius growth
-// so that neighbourhoods stay local for longer -- in high dimensions a radius
-// that reaches the whole box early makes every dragonfly a neighbour of every
+// so that neighborhoods stay local for longer -- in high dimensions a radius
+// that reaches the whole box early makes every dragonfly a neighbor of every
 // other and collapses the swarm onto the food source.
 func NewHighDimensionalConfig() *Config {
 	config := NewDefaultConfig()
@@ -66,7 +66,7 @@ func NewHighDimensionalConfig() *Config {
 // eventually.
 // You must set ObjectiveFunc, ProblemSize, LowerBound, and UpperBound.
 //
-// It shortens the run, shrinks the swarm, and grows the neighbourhood radius
+// It shortens the run, shrinks the swarm, and grows the neighborhood radius
 // faster so the swarm becomes a single flock -- and therefore exploits the food
 // source -- earlier. A larger step clamp lets it get there in fewer iterations.
 func NewFastConvergenceConfig() *Config {

@@ -14,10 +14,45 @@ type ObjectiveFunction func([]float64) float64
 // within the configured equality tolerance.
 type ConstraintFunction func([]float64) float64
 
+// ConstraintHandlingMethod selects how constrained candidates are ranked
+// against one another.
+type ConstraintHandlingMethod string
+
+const (
+	// ConstraintHandlingFeasibility applies Deb's feasibility rules: a feasible
+	// candidate always beats an infeasible one, two feasible candidates are
+	// ranked by cost, and two infeasible ones by aggregate violation.
+	ConstraintHandlingFeasibility ConstraintHandlingMethod = "feasibility"
+	// ConstraintHandlingPenalty ranks candidates by their penalized cost.
+	ConstraintHandlingPenalty ConstraintHandlingMethod = "penalty"
+)
+
+// PenaltyMethod selects how aggregate constraint violation is folded into the
+// objective cost.
+type PenaltyMethod string
+
+const (
+	// PenaltyLinear adds factor * violation to the objective cost.
+	PenaltyLinear PenaltyMethod = "linear"
+	// PenaltyQuadratic adds factor * violation squared to the objective cost.
+	PenaltyQuadratic PenaltyMethod = "quadratic"
+)
+
+// ConstraintConfig configures optional problem constraints. The function
+// fields are not serialized; JSON round-trips carry the policy only.
+type ConstraintConfig struct {
+	Handling          ConstraintHandlingMethod `json:"handling,omitempty"`
+	PenaltyMethod     PenaltyMethod            `json:"penalty_method,omitempty"`
+	Inequalities      []ConstraintFunction     `json:"-"`
+	Equalities        []ConstraintFunction     `json:"-"`
+	PenaltyFactor     float64                  `json:"penalty_factor,omitempty"`
+	EqualityTolerance float64                  `json:"equality_tolerance,omitempty"`
+}
+
 // WeightAuto makes Optimize derive a swarming weight from the paper's adaptive
 // schedule instead of taking the field literally. It is the default for every
 // weight field, and it is a distinct sentinel rather than the zero value
-// because zero is a meaningful weight -- "switch this behaviour off" -- and a
+// because zero is a meaningful weight -- "switch this behavior off" -- and a
 // caller who wrote it must keep getting it.
 //
 // It is the same convention Mayfly uses for NCAuto and AquilaWeightAuto.
@@ -31,7 +66,7 @@ const (
 	// BoundaryWrap is the paper's rule: a component that leaves the box
 	// reappears at the opposite bound and its step component is redrawn
 	// uniformly from [0,1). Wrapping is genuinely part of the algorithm's
-	// exploration behaviour, so it is the default.
+	// exploration behavior, so it is the default.
 	BoundaryWrap BoundaryMethod = "wrap"
 	// BoundaryClamp pins an out-of-range component to the bound it crossed and
 	// leaves the step untouched. It is Mayfly's maxVec/minVec idiom, and the
@@ -64,7 +99,7 @@ type Best struct {
 
 // Dragonfly represents a single dragonfly in the swarm.
 //
-// Step is the paper's ΔX, the velocity analogue: it is carried between
+// Step is the paper's ΔX, the velocity analog: it is carried between
 // iterations through the inertia weight, clamped to ±ΔX_max, and reset by the
 // boundary handler and the Lévy branch.
 type Dragonfly struct {
@@ -109,6 +144,7 @@ type Config struct {
 	ObjectiveFunc  ObjectiveFunction  `json:"-"`
 	Rand           *rand.Rand         `json:"-"`
 	Convergence    *ConvergenceConfig `json:"convergence,omitempty"`
+	Constraints    *ConstraintConfig  `json:"constraints,omitempty"`
 	BoundaryMethod BoundaryMethod     `json:"boundary_method"`
 	LowerBound     float64            `json:"lower_bound"`
 	UpperBound     float64            `json:"upper_bound"`
@@ -126,7 +162,7 @@ type Config struct {
 	FoodWeight       float64 `json:"food_weight"`
 	EnemyWeight      float64 `json:"enemy_weight"`
 
-	// RadiusInitialDivisor and RadiusGrowth shape the neighbourhood radius
+	// RadiusInitialDivisor and RadiusGrowth shape the neighborhood radius
 	// r = (ub-lb)/divisor + (ub-lb)*(t/T)*growth.
 	RadiusInitialDivisor float64 `json:"radius_initial_divisor"`
 	RadiusGrowth         float64 `json:"radius_growth"`
@@ -138,7 +174,7 @@ type Config struct {
 	// weight is forced to zero. The paper uses three quarters.
 	EnemyCutoffFraction float64 `json:"enemy_cutoff_fraction"`
 
-	// LevyBeta and LevyScale parameterise Mantegna's algorithm.
+	// LevyBeta and LevyScale parameterize Mantegna's algorithm.
 	LevyBeta  float64 `json:"levy_beta"`
 	LevyScale float64 `json:"levy_scale"`
 
@@ -148,7 +184,7 @@ type Config struct {
 	MaxWorkers    int `json:"max_workers"`
 
 	// UseLevyWalk selects the paper's Lévy random walk for a dragonfly with no
-	// neighbours and no food in range. Disabling it keeps such a dragonfly
+	// neighbors and no food in range. Disabling it keeps such a dragonfly
 	// still for that iteration.
 	UseLevyWalk    bool `json:"use_levy_walk"`
 	EnableParallel bool `json:"enable_parallel"`

@@ -262,8 +262,8 @@ Dragonfly/
 - [x] `.github/workflows/test.yml` — format / lint / test (Go 1.23 + 1.24 matrix) / benchmark
 - [x] `.github/workflows/release.yml` — semver validation, metadata checks, module-path
       assertion against `github.com/MeKo-Christian/dragonfly`
-- [ ] `justfile` — Mayfly's recipes minus the wasm ones
-- [ ] `go.mod` — `module github.com/MeKo-Christian/dragonfly`, `go 1.23.3`
+- [x] `justfile` — Mayfly's recipes minus the wasm ones
+- [x] `go.mod` — `module github.com/MeKo-Christian/dragonfly`, `go 1.23.3`
 
 **Rationale**: Getting the linter and formatter contract in place *before* the first line
 of algorithm code means the house style is enforced from commit one, rather than being
@@ -274,11 +274,11 @@ them would grandfather a problem we do not have yet.
 ### 1.2 Documents
 
 - [x] `PLAN.md` — this file
-- [ ] `README.md` — skeleton following Mayfly's section order
-- [ ] `CHANGELOG.md` — Keep a Changelog 1.1.0 + SemVer, `## [Unreleased]` only
-- [ ] `CLAUDE.md` — development guide: commands, architecture, conventions, pitfalls
-- [ ] `AGENTS.md` — the short six-section agent brief
-- [ ] `git init`, initial commit
+- [x] `README.md` — skeleton following Mayfly's section order
+- [x] `CHANGELOG.md` — Keep a Changelog 1.1.0 + SemVer, `## [Unreleased]` only
+- [x] `CLAUDE.md` — development guide: commands, architecture, conventions, pitfalls
+- [x] `AGENTS.md` — the short six-section agent brief
+- [x] `git init`, initial commit
 
 **Gate**: `just check` runs and passes (trivially, with no Go files yet).
 
@@ -286,17 +286,17 @@ them would grandfather a problem we do not have yet.
 
 ## Phase 2: Core standard DA
 
-- [ ] `types.go` — `Config`, `Dragonfly`, `Best`, `Result`, `ConvergenceConfig`,
+- [x] `types.go` — `Config`, `Dragonfly`, `Best`, `Result`, `ConvergenceConfig`,
       `TerminationReason`, `BoundaryMethod`, `WeightAuto` sentinel
-- [ ] `helpers.go` — `unifrnd`, `randn`, `maxVec`, `minVec`, `sanitizeVec`, `sanitizeCost`,
+- [x] `helpers.go` — `unifrnd`, `randn`, `maxVec`, `minVec`, `sanitizeVec`, `sanitizeCost`,
       `effectiveXxx(config)` resolvers, `validateXxx(config) error`
-- [ ] `levy.go` + `levy_test.go`
-- [ ] `weights.go` + `weights_test.go`
-- [ ] `swarm.go` + `swarm_test.go`
-- [ ] `config.go` — `NewDefaultConfig` and friends
-- [ ] `functions.go` + `functions_test.go` — ported from Mayfly
-- [ ] `dragonfly.go` — package doc, `Optimize`, sequential `OptimizeContext`
-- [ ] `types_test.go`, `helpers_test.go`
+- [x] `levy.go` + `levy_test.go`
+- [x] `weights.go` + `weights_test.go`
+- [x] `swarm.go` + `swarm_test.go`
+- [x] `config.go` — `NewDefaultConfig` and friends
+- [x] `functions.go` + `functions_test.go` — ported from Mayfly
+- [x] `dragonfly.go` — package doc, `Optimize`, sequential `OptimizeContext`
+- [x] `types_test.go`, `helpers_test.go`
 
 **Gate**: converges on Sphere, Rastrigin, Ackley, and Rosenbrock at d = 10 within the
 tolerances that will be recorded in `regression_test.go`; two runs with the same seed
@@ -461,6 +461,24 @@ statistical question with a tolerance attached.
 ---
 
 ## Deferred — recorded so the roadmap stays honest
+
+### Inherited benchmark defects (shared with Mayfly)
+
+`functions.go` was ported verbatim from Mayfly, which means it inherited two edge-case
+defects. They are tracked in both repositories and should be fixed in both together, so the
+two benchmark suites stay numerically comparable. See the note at the top of
+`../Mayfly/PLAN.md` for the full write-up.
+
+- [ ] `Levy([])` panics with `index out of range [0] with length 0` — the only benchmark
+      function that panics rather than returning a value
+- [ ] Empty-input handling is inconsistent: 12 functions return `0`, `Ackley` and `HappyCat`
+      return `NaN` (division by `n`), `Levy` panics. Choose one convention, document it in
+      the package comment, and assert it for all 15 functions in one table-driven test
+
+**Not defects — checked and cleared 2026-08-23**, recorded so they are not "fixed" into real
+bugs later: `Levy`'s `sin(π·wᵢ + 1)` is the standard definition (the `+1` is correct; it is
+not a mistranscription of `π/4`), and `ExpandedSchafferF6`'s wrap-around pair
+`g(x[n-1], x[0])` is part of the CEC definition of the expanded function.
 
 - [ ] CEC2017 / CEC2020 benchmark suites
 - [ ] WebAssembly browser demo and the GitHub Pages workflow

@@ -12,7 +12,7 @@ import (
 // unifrnd generates a random float64 between lower and upper.
 func unifrnd(lower, upper float64, rng *rand.Rand) float64 {
 	if rng == nil {
-		return lower + rand.Float64()*(upper-lower) //nolint:gosec // math/rand is the point of a metaheuristic
+		return lower + rand.Float64()*(upper-lower)
 	}
 
 	return lower + rng.Float64()*(upper-lower)
@@ -31,7 +31,7 @@ func unifrndVec(lower, upper float64, size int, rng *rand.Rand) []float64 {
 // randn generates a normally distributed random number.
 func randn(rng *rand.Rand) float64 {
 	if rng == nil {
-		return rand.NormFloat64() //nolint:gosec // math/rand is the point of a metaheuristic
+		return rand.NormFloat64()
 	}
 
 	return rng.NormFloat64()
@@ -116,7 +116,7 @@ func copyVec(vec []float64) []float64 {
 //
 //   - BoundaryWrap treats the search space as a torus. A component past a bound
 //     reappears at the opposite bound and its step is redrawn from [0,1). This
-//     is the paper's rule and part of the algorithm's exploration behaviour.
+//     is the paper's rule and part of the algorithm's exploration behavior.
 //   - BoundaryClamp pins the component to the bound it crossed and leaves the
 //     step alone, which is what Mayfly does.
 //   - BoundaryReflect mirrors the component back into the box and flips the sign
@@ -124,7 +124,7 @@ func copyVec(vec []float64) []float64 {
 //     until the component lands inside, so a step longer than the box width
 //     still terminates.
 //
-// An unrecognised method falls back to wrapping, so a zero-valued Config that
+// An unrecognized method falls back to wrapping, so a zero-valued Config that
 // never reached validateConfig still behaves like the paper.
 func applyBounds(position, step []float64, lower, upper float64, method BoundaryMethod, rng *rand.Rand) {
 	for i := range position {
@@ -235,8 +235,9 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("problem_size must be positive, got %d", config.ProblemSize)
 	}
 
-	if err := validateBounds(config); err != nil {
-		return err
+	boundsErr := validateBounds(config)
+	if boundsErr != nil {
+		return boundsErr
 	}
 
 	if config.NPop <= 0 {
@@ -251,12 +252,14 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("max_workers must be non-negative, got %d", config.MaxWorkers)
 	}
 
-	if err := validateWeights(config); err != nil {
-		return err
+	weightsErr := validateWeights(config)
+	if weightsErr != nil {
+		return weightsErr
 	}
 
-	if err := validateSchedules(config); err != nil {
-		return err
+	schedulesErr := validateSchedules(config)
+	if schedulesErr != nil {
+		return schedulesErr
 	}
 
 	switch config.BoundaryMethod {
@@ -266,8 +269,9 @@ func validateConfig(config *Config) error {
 			BoundaryWrap, BoundaryClamp, BoundaryReflect, config.BoundaryMethod)
 	}
 
-	if err := validateConvergenceBlock(config.Convergence, config.MaxIterations); err != nil {
-		return fmt.Errorf("invalid convergence config: %w", err)
+	convergenceErr := validateConvergenceBlock(config.Convergence, config.MaxIterations)
+	if convergenceErr != nil {
+		return fmt.Errorf("invalid convergence config: %w", convergenceErr)
 	}
 
 	return nil
