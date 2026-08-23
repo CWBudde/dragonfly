@@ -440,3 +440,22 @@ func TestOptimizeSurvivesHostileObjective(t *testing.T) {
 		}
 	}
 }
+
+func TestOptimizeContextRejectsArchiveObserver(t *testing.T) {
+	config := NewDefaultConfig()
+	config.ObjectiveFunc = Sphere
+	config.ProblemSize = 2
+	config.LowerBound = -1
+	config.UpperBound = 1
+	config.MaxIterations = 2
+
+	result, err := OptimizeContext(context.Background(), config,
+		WithArchiveObserver(func(ArchiveSnapshot) {}))
+	if err == nil {
+		t.Fatal("a single-objective run accepted WithArchiveObserver")
+	}
+
+	if result != nil {
+		t.Error("a rejected run must not return a partial result")
+	}
+}

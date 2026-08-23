@@ -33,6 +33,21 @@ test-integration:
 bench:
     go test -bench=. -benchmem ./...
 
+# Build the WebAssembly demo into ./dist
+build-wasm-demo:
+    ./scripts/build-wasm-demo.sh
+
+# Build and serve the WebAssembly demo locally
+run-wasm-demo: build-wasm-demo
+    @echo "Serving the demo at http://localhost:8090"
+    python3 -m http.server -d dist 8090
+
+# Build the demo for js/wasm without emitting a binary (a fast compile check).
+# It builds both ways on purpose: the js/wasm build covers main.go, the plain
+# one covers main_stub.go, and a broken build tag shows up in exactly one.
+check-wasm-demo:
+    cd examples/wasm-demo && GOOS=js GOARCH=wasm go build -o /dev/null . && go build -o /dev/null ./...
+
 # Run the examples
 run:
     cd examples && go run main.go

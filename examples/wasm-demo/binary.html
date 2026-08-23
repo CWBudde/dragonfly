@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Binary Dragonfly · Dragonfly</title>
+    <meta
+      name="description"
+      content="BDA in the browser: the swarm as a bit matrix, and the transfer function that turns a step into a flip probability."
+    />
+    <link rel="icon" href="favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+
+    <!--
+      DOM CONTRACT — read this before touching binary.js.
+
+      Ids binary.js binds to:
+        #status           status readout; data-state="ready|error|loading"
+        #stage            bit matrix — one column per dragonfly, one row per bit
+        #transferPlot     the chosen transfer function's curve
+        #convergence      convergence canvas
+        #agreement        per-bit swarm agreement, this frame
+
+        #problem #transfer   <select>s, filled from info()
+        #bits #npop #iterations #seed   <input type=number>
+        #run #rerun #newSeed  buttons
+        #play #scrub #speed #frameReadout   the transport
+
+        #problemNote #transferNote   prose for the two selects
+
+      Telemetry values:
+        #tBest #tOptimum #tSet #tEvals #tIterations #tTermination #tSeed #tSettled
+    -->
+  </head>
+  <body>
+    <header class="masthead">
+      <h1 class="wordmark">
+        <img class="glyph" src="favicon.svg" alt="" />
+        Dragonfly
+        <span class="sub">binary</span>
+      </h1>
+      <nav>
+        <a href="index.html">Swarm Lab</a>
+        <a href="pareto.html">Pareto</a>
+        <a href="binary.html" aria-current="page">Binary</a>
+        <a href="benchmark.html">Shootout</a>
+        <a href="https://github.com/CWBudde/dragonfly">Source</a>
+      </nav>
+    </header>
+
+    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
+
+    <p class="lede">
+      BDA changes exactly one thing about the algorithm: the step vector
+      <code>ΔX</code> is computed the same way as in the continuous case, and
+      then a <strong>transfer function</strong> turns each component's magnitude
+      into the probability that the corresponding bit flips. Everything else —
+      the five swarming primitives, the food source, the enemy, the two-branch
+      update — is unchanged. The curve on the right is that probability, and the
+      matrix below is what it produced.
+    </p>
+
+    <div class="instrument">
+      <section class="stage-wrap">
+        <canvas id="stage" width="900" height="500" style="aspect-ratio: 16 / 9"></canvas>
+
+        <div class="transport">
+          <button type="button" class="icon" id="play" aria-pressed="false">
+            Play
+          </button>
+          <input
+            type="range"
+            id="scrub"
+            min="0"
+            max="0"
+            value="0"
+            aria-label="Iteration"
+          />
+          <select id="speed" aria-label="Replay speed" style="width: auto">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+          <span class="frame-readout" id="frameReadout">—</span>
+        </div>
+
+        <ul class="legend">
+          <li><span class="key" style="background: var(--swarm)"></span>bit set</li>
+          <li><span class="key" style="background: var(--food)"></span>bit set, and set in the best solution</li>
+        </ul>
+
+        <p class="note" style="margin-top: 0.6rem">
+          One column per dragonfly, one row per decision variable. A row that
+          goes solid is a bit the swarm has agreed on.
+        </p>
+      </section>
+
+      <div>
+        <section class="panel">
+          <h2>Problem</h2>
+          <div class="panel-body">
+            <div class="field">
+              <label for="problem">Objective</label>
+              <select id="problem"></select>
+              <p class="note" id="problemNote"></p>
+            </div>
+            <div class="field field-pair">
+              <div class="field">
+                <label for="bits">Bits</label>
+                <input type="number" id="bits" min="2" value="24" />
+              </div>
+              <div class="field">
+                <label for="npop">Dragonflies</label>
+                <input type="number" id="npop" min="2" value="30" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="iterations">Iterations</label>
+              <input type="number" id="iterations" min="1" value="150" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" style="margin-top: var(--gap)">
+          <h2>Transfer function</h2>
+          <div class="panel-body">
+            <div class="field">
+              <label for="transfer">T(Δx)</label>
+              <select id="transfer"></select>
+              <p class="note" id="transferNote"></p>
+            </div>
+            <canvas id="transferPlot" width="640" height="300"></canvas>
+          </div>
+        </section>
+
+        <section class="panel" style="margin-top: var(--gap)">
+          <h2>Run</h2>
+          <div class="panel-body">
+            <div class="field">
+              <label for="seed">Seed</label>
+              <input type="number" id="seed" value="42" />
+            </div>
+            <div class="button-row" style="margin-bottom: 0.5rem">
+              <button type="button" class="primary" id="run">Run</button>
+            </div>
+            <div class="button-row">
+              <button type="button" id="rerun">Same seed</button>
+              <button type="button" id="newSeed">New seed</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <dl class="telemetry">
+      <div><dt>Best cost</dt><dd id="tBest">—</dd></div>
+      <div><dt>Known optimum</dt><dd id="tOptimum">—</dd></div>
+      <div><dt>Bits set</dt><dd id="tSet">—</dd></div>
+      <div><dt>Settled bits</dt><dd id="tSettled">—</dd></div>
+      <div><dt>Evaluations</dt><dd id="tEvals">—</dd></div>
+      <div><dt>Iterations</dt><dd id="tIterations">—</dd></div>
+      <div><dt>Stopped by</dt><dd id="tTermination">—</dd></div>
+      <div><dt>Seed</dt><dd id="tSeed">—</dd></div>
+    </dl>
+
+    <div class="plots">
+      <section class="panel">
+        <h3>Convergence</h3>
+        <div class="panel-body">
+          <canvas id="convergence" width="640" height="360"></canvas>
+        </div>
+      </section>
+      <section class="panel">
+        <h3>Per-bit agreement, this frame</h3>
+        <div class="panel-body">
+          <canvas id="agreement" width="640" height="360"></canvas>
+        </div>
+      </section>
+    </div>
+
+    <aside class="caveat">
+      <h2>V-shaped and S-shaped</h2>
+      <p>
+        The two families behave differently and the curve shows why. A
+        <strong>V-shaped</strong> function — <code>v1</code> to <code>v4</code>,
+        with <code>v3</code> the paper's default — is symmetric about zero: it
+        flips a bit on the <em>magnitude</em> of the step regardless of sign, so
+        a large step means "change, whichever way you currently are". An
+        <strong>S-shaped</strong> function — <code>s1</code> to <code>s4</code>,
+        the logistic family — is monotone: a large positive step drives the bit
+        toward one and a large negative step toward zero.
+      </p>
+      <p>
+        That difference has a visible consequence in the matrix. A V-shaped run
+        keeps churning bits while steps stay large, and settles as the step
+        clamp shrinks. An S-shaped run commits earlier and is harder to talk out
+        of a bit it has decided on.
+      </p>
+      <p>
+        The three objectives here are the demo's own; the library's benchmark
+        suite is defined over real vectors. They are deliberately small enough to
+        check by eye — on <em>TargetPattern</em> the answer is literally the
+        stripe every column converges to. The problem data is generated from the
+        bit count alone and never from the run seed, so changing the seed
+        compares two runs on the same problem rather than two different problems.
+      </p>
+    </aside>
+
+    <footer class="page">
+      <span>Mirjalili, S. (2016) — BDA, §5</span>
+      <span id="buildInfo"></span>
+    </footer>
+
+    <script src="wasm_exec.js"></script>
+    <script src="boot.js"></script>
+    <script src="render.js"></script>
+    <script src="binary.js"></script>
+  </body>
+</html>

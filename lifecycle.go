@@ -49,6 +49,37 @@ type PopulationSnapshot struct {
 // OptimizeContext invokes observers synchronously on the calling goroutine.
 type PopulationObserver func(PopulationSnapshot)
 
+// ArchiveSnapshot is the Pareto archive of a multi-objective run after a
+// completed iteration. Iteration is one-based. Every solution is a deep copy
+// and both bound vectors are copies: observers may retain or modify them
+// without affecting the optimizer.
+//
+// It is the multi-objective counterpart of PopulationSnapshot, and it is
+// separate from Progress for a stronger reason than PopulationSnapshot is: a
+// MODA run has no single incumbent, so there is no best cost for Progress to
+// carry. The front itself is the result, and watching it fill in -- animating
+// it, measuring its spread, seeing whether it is still growing -- is the only
+// reason to observe such a run at all.
+//
+// GridLower and GridUpper are the archive's per-objective extent, which is
+// also the extent of the hypercube grid, and NGrid is the number of bins along
+// each objective. Together they are the frame each solution's GridIndex is
+// expressed in, and they move as the archive does. All three are zero for an
+// empty archive.
+type ArchiveSnapshot struct {
+	Solutions       []*ParetoSolution
+	GridLower       []float64
+	GridUpper       []float64
+	Iteration       int
+	EvaluationCount int
+	NGrid           int
+}
+
+// ArchiveObserver receives the Pareto archive after each completed iteration.
+// OptimizeMultiObjective invokes observers synchronously on the calling
+// goroutine.
+type ArchiveObserver func(ArchiveSnapshot)
+
 // Logger receives structured optimization lifecycle events. *slog.Logger
 // implements Logger. OptimizeContext invokes loggers synchronously on the
 // calling goroutine.
@@ -66,6 +97,7 @@ type RunOption struct {
 type runOptions struct {
 	observer           ProgressObserver
 	populationObserver PopulationObserver
+	archiveObserver    ArchiveObserver
 	logger             Logger
 	initialPositions   [][]float64
 }
@@ -101,6 +133,22 @@ func WithProgressObserver(observer ProgressObserver) RunOption {
 func WithPopulationObserver(observer PopulationObserver) RunOption {
 	return RunOption{apply: func(options *runOptions) error {
 		options.populationObserver = observer
+
+		return nil
+	}}
+}
+
+// WithArchiveObserver registers an observer for the Pareto archive of a
+// multi-objective run. It is called once per completed iteration with a deep
+// copy of the archive. Passing nil disables archive reporting, which is the
+// default: nothing is copied unless an observer is registered.
+//
+// It is meaningful only for OptimizeMultiObjective. A single-objective run has
+// no archive and rejects this option rather than accepting it and then
+// reporting nothing.
+func WithArchiveObserver(observer ArchiveObserver) RunOption {
+	return RunOption{apply: func(options *runOptions) error {
+		options.archiveObserver = observer
 
 		return nil
 	}}
@@ -223,6 +271,27 @@ func cloneDragonfly(fly Dragonfly) Dragonfly {
 	}
 }
 
+// cloneParetoSolutions copies an archive element by element, so that an
+// observer cannot reach back into the running optimizer through the archive's
+// backing array or through a retained position vector. The array matters as
+// much as the vectors here: ParetoArchive.Add compacts the survivors in place,
+// so a shared slice would keep changing after the observer was handed it.
+//
+// ParetoSolution.clone drops the sorting bookkeeping, which is scratch space
+// recomputed wherever it is used and means nothing outside that pass.
+func cloneParetoSolutions(solutions []*ParetoSolution) []*ParetoSolution {
+	if solutions == nil {
+		return nil
+	}
+
+	cloned := make([]*ParetoSolution, len(solutions))
+	for i, solution := range solutions {
+		cloned[i] = solution.clone()
+	}
+
+	return cloned
+}
+
 func notifyProgress(observer ProgressObserver, iteration, evaluationCount int, best Best) {
 	if observer == nil {
 		return
@@ -233,6 +302,35 @@ func notifyProgress(observer ProgressObserver, iteration, evaluationCount int, b
 		Iteration:       iteration,
 		EvaluationCount: evaluationCount,
 	})
+}
+
+// notifyArchive hands an observer a deep copy of the archive after a completed
+// iteration. A nil observer costs nothing: no copy is made unless someone is
+// watching.
+func notifyArchive(
+	observer ArchiveObserver,
+	iteration, evaluationCount int,
+	archive *ParetoArchive,
+) {
+	if observer == nil {
+		return
+	}
+
+	lower, upper := archive.GridBounds()
+
+	snapshot := ArchiveSnapshot{
+		GridLower:       lower,
+		GridUpper:       upper,
+		Iteration:       iteration,
+		EvaluationCount: evaluationCount,
+	}
+
+	if archive != nil {
+		snapshot.Solutions = cloneParetoSolutions(archive.Solutions)
+		snapshot.NGrid = archive.NGrid
+	}
+
+	observer(snapshot)
 }
 
 func notifyPopulation(
@@ -262,6 +360,23 @@ var errNilContext = errors.New("context cannot be nil")
 func requireContext(ctx context.Context) error {
 	if ctx == nil {
 		return errNilContext
+	}
+
+	return nil
+}
+
+// validateSingleObjectiveRunOptions rejects the run options that have no
+// single-objective reading.
+//
+// Only WithArchiveObserver qualifies today. Accepting it and never calling it
+// would be exactly the silent no-op that the multi-objective side of this
+// rule, validateMultiObjectiveRunOptions, exists to refuse: a caller who
+// registers an observer is waiting for something.
+func validateSingleObjectiveRunOptions(options runOptions) error {
+	if options.archiveObserver != nil {
+		return errors.New(
+			"WithArchiveObserver has no meaning for a single-objective run: " +
+				"there is no Pareto archive; use WithPopulationObserver")
 	}
 
 	return nil

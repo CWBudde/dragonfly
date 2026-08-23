@@ -97,5 +97,15 @@ examples/*/[a-z]*
 !examples/*/go.mod
 !examples/*/go.sum
 !examples/*/README.md
+# The WebAssembly demo is an examples/ subdirectory whose sources are static
+# assets rather than Go files, so the rule above would swallow every one of
+# them.
+!examples/*/*.html
+!examples/*/*.css
+!examples/*/*.js
+!examples/*/*.svg
 # examples/ is itself a module, so `go build` there drops examples/examples.
 examples/examples
+# `go build ./...` inside the demo module drops a binary named after it. The
+# rule above already catches it; naming it keeps the reason visible.
+/examples/wasm-demo/wasm-demo

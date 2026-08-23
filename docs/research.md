@@ -132,7 +132,7 @@ the source.
 | MODA `NGrid`, `ArchiveSize`                  | `10`, `100`                   | **Unverified.** Same provenance.                                                                              |
 
 The source says the same thing at each declaration, `PLAN.md` §1.7 records it, and
-`CLAUDE.md`'s pitfall list repeats it. Do not cite the unverified rows as settled paper values.
+`AGENTS.md`'s pitfall list repeats it. Do not cite the unverified rows as settled paper values.
 
 ## Deliberate deviations from the reference MATLAB
 
@@ -167,7 +167,7 @@ last parameter; there is no package-level `math/rand` use. Every random draw an 
 happens on the calling goroutine, and worker goroutines only evaluate the objective. A seeded
 run is bit-identical with parallel evaluation on or off.
 
-**Validation approach.** Four layers, described in `CLAUDE.md`:
+**Validation approach.** Four layers, described in `AGENTS.md`:
 
 - **Hand-computed unit tests.** `swarm_test.go` builds a 3-dragonfly, 2-dimensional swarm and
   compares S, A, C, F, E and one full `ΔX` step against values worked out by hand from `DA.m`.

@@ -248,3 +248,40 @@ func swarmScale(vec []float64, factor float64) {
 		vec[k] *= factor
 	}
 }
+
+// NeighborhoodRadius returns the radius r the swarm uses at the given
+// iteration, which is the schedule described on Config.RadiusInitialDivisor
+// and Config.RadiusGrowth. iteration is zero-based; maxIterations is the
+// configured total.
+//
+// It is exported because r is the one schedule whose effect a caller can see
+// without instrumenting the run: it decides who counts as a neighbor, and
+// therefore whether a dragonfly swarms locally or flies to the food source. A
+// caller tuning either field, or drawing the neighborhood a PopulationSnapshot
+// implies, needs the same number the optimizer used rather than its own
+// reading of the formula.
+//
+// A nil config has no bounds and no radius, and returns zero.
+func NeighborhoodRadius(config *Config, iteration, maxIterations int) float64 {
+	if config == nil {
+		return 0
+	}
+
+	return neighborhoodRadius(config, iteration, maxIterations)
+}
+
+// WithinRadius reports whether b is a neighbor of a at the given radius.
+//
+// The test is per-dimension and is a box, not a ball: every component of the
+// distance must be within the radius, and at least one must be non-zero, so a
+// dragonfly is never its own neighbor. Vectors of unequal or zero length, and
+// any vector with a NaN component, are never neighbors.
+//
+// It is exported for the same reason NeighborhoodRadius is, and for one more:
+// a Euclidean reading of this test is the most common way to get the algorithm
+// subtly wrong, and a caller reconstructing a neighborhood from a
+// PopulationSnapshot should be able to ask the library rather than reimplement
+// the rule and drift from it.
+func WithinRadius(a, b []float64, radius float64) bool {
+	return withinRadius(a, b, radius)
+}

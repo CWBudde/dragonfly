@@ -306,6 +306,32 @@ repository root, so they build against the working tree rather than a published 
 (cd examples/comparison && go run .)        # the statistical comparison framework
 ```
 
+## Web Demo
+
+A browser demo of the library lives in [`examples/wasm-demo`](examples/wasm-demo)
+and is published to <https://cwbudde.github.io/Dragonfly/>. It has four pages:
+
+- a **Swarm Lab** that animates the swarm over a benchmark landscape, colouring
+  each dragonfly by which branch of the two-branch step update it is about to
+  take, and drawing the neighbourhood as the axis-aligned box it actually is;
+- a **Pareto** page that animates MODA's archive filling in, over the hypercube
+  grid its food and enemy draws turn on;
+- a **Binary** page showing BDA's swarm as a bit matrix beside the transfer
+  function's own probability curve;
+- a **Shootout** that runs the comparison framework over DA's configurable
+  choices — boundary rule, Lévy walk, enemy term — with paired seeds, Wilcoxon
+  signed-rank tests and a Friedman test.
+
+Everything they show is computed by this library compiled to `js/wasm`; there is
+no JavaScript reimplementation of the algorithm.
+
+```bash
+just run-wasm-demo   # build into ./dist and serve at http://localhost:8090
+```
+
+See [`examples/wasm-demo/README.md`](examples/wasm-demo/README.md) for what it
+exercises and how to read its numbers.
+
 ## Build Commands
 
 Using the [Just](https://github.com/casey/just) task runner:
@@ -442,7 +468,7 @@ parameters are this implementation's choices rather than values read off the aut
 ## Contributing
 
 1. Fork the repository and create a feature branch
-2. Follow the conventions in [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md)
+2. Follow the conventions in [AGENTS.md](AGENTS.md)
 3. Add tests for new behaviour — a new operator wants a hand-computed unit test, not only an
    end-to-end convergence check
 4. Run `just check` and make sure it is green

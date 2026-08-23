@@ -416,3 +416,68 @@ func TestSeparationIsAntisymmetric(t *testing.T) {
 	assertVec(t, "S_0", first, []float64{1, 2})
 	assertVec(t, "S_1", second, []float64{-1, -2})
 }
+
+// TestNeighborhoodRadiusMatchesTheSchedule checks the exported wrapper against
+// hand-computed values of the schedule, not against the unexported function it
+// forwards to -- a wrapper that agreed with a wrong implementation would prove
+// nothing.
+func TestNeighborhoodRadiusMatchesTheSchedule(t *testing.T) {
+	config := NewDefaultConfig()
+	config.LowerBound = -10
+	config.UpperBound = 10
+
+	// span = 20, divisor = 4, growth = 2:
+	//   r(t) = 20/4 + 20 * (t/T) * 2 = 5 + 40*t/T
+	tests := []struct {
+		iteration int
+		want      float64
+	}{
+		{iteration: 0, want: 5},
+		{iteration: 50, want: 25},
+		{iteration: 100, want: 45},
+	}
+
+	for _, test := range tests {
+		got := NeighborhoodRadius(config, test.iteration, 100)
+		if math.Abs(got-test.want) > 1e-12 {
+			t.Errorf("NeighborhoodRadius(t=%d) = %v, want %v", test.iteration, got, test.want)
+		}
+	}
+
+	if NeighborhoodRadius(nil, 0, 100) != 0 {
+		t.Error("a nil config must report no radius")
+	}
+}
+
+// TestWithinRadiusIsABoxNotABall is the exported guard on the pitfall that the
+// neighborhood test is per-dimension. The point below is inside the Euclidean
+// ball of radius 1.5 and outside the box, so a Euclidean implementation passes
+// every end-to-end test and fails exactly here.
+func TestWithinRadiusIsABoxNotABall(t *testing.T) {
+	a := []float64{0, 0}
+
+	if WithinRadius(a, []float64{1.4, 0}, 1.5) != true {
+		t.Error("a point inside the box was not a neighbor")
+	}
+
+	if WithinRadius(a, []float64{1.4, 1.4}, 1.5) != true {
+		t.Error("a point inside the box on both axes was not a neighbor")
+	}
+
+	// Euclidean distance 1.42 < 1.5, but the second component exceeds it.
+	if WithinRadius(a, []float64{0.2, 1.6}, 1.5) {
+		t.Error("a point outside the box on one axis was reported as a neighbor")
+	}
+
+	if WithinRadius(a, []float64{0, 0}, 1.5) {
+		t.Error("a dragonfly must not be its own neighbor")
+	}
+
+	if WithinRadius(a, []float64{1}, 1.5) {
+		t.Error("vectors of unequal length must never be neighbors")
+	}
+
+	if WithinRadius(a, []float64{math.NaN(), 0}, 1.5) {
+		t.Error("a NaN component must never be a neighbor")
+	}
+}

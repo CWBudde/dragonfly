@@ -580,7 +580,14 @@ not a mistranscription of `π/4`), and `ExpandedSchafferF6`'s wrap-around pair
 `g(x[n-1], x[0])` is part of the CEC definition of the expanded function.
 
 - [ ] CEC2017 / CEC2020 benchmark suites
-- [ ] WebAssembly browser demo and the GitHub Pages workflow
+- [x] WebAssembly browser demo and the GitHub Pages workflow — `examples/wasm-demo/`,
+      four pages (Swarm Lab, Pareto, Binary, Shootout), built by
+      `scripts/build-wasm-demo.sh` and published by `.github/workflows/wasm-demo-pages.yml`.
+      Building it surfaced a real gap and closed it: `OptimizeMultiObjective` took no
+      `RunOption` at all, so no caller could watch a MODA run. It now accepts them, with
+      `WithArchiveObserver` and `ParetoArchive.GridBounds()` added, and `NeighborhoodRadius`
+      and `WithinRadius` exported so a caller reconstructing a neighbourhood asks the
+      library rather than reimplementing the per-dimension test.
 - [ ] `CONTRIBUTING.md`, issue and PR templates
 - [ ] Hybrid and improved DA variants: memory-based MDA, hybrid HDA, chaotic DA, quantum DA
 - [ ] A head-to-head `dragonfly` vs `mayfly` comparison harness and results table

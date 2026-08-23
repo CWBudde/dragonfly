@@ -392,8 +392,9 @@ func (v *MODAVariant) Run(_ context.Context, _ *Config, _ ...RunOption) (*Result
 func (v *MODAVariant) RunMultiObjective(
 	ctx context.Context,
 	config *MultiObjectiveConfig,
+	options ...RunOption,
 ) (*MultiObjectiveResult, error) {
-	return OptimizeMultiObjective(ctx, config)
+	return OptimizeMultiObjective(ctx, config, options...)
 }
 
 // ApplicableTo scores the multi-objective variant against a problem.
