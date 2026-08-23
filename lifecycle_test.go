@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"math/rand"
 	"reflect"
 	"strings"
 	"testing"
@@ -113,6 +114,7 @@ func TestWithObserversAcceptNil(t *testing.T) {
 	resolved, err := resolveRunOptions([]RunOption{
 		WithProgressObserver(nil),
 		WithPopulationObserver(nil),
+		WithArchiveObserver(nil),
 		WithLogger(nil),
 	})
 	if err != nil {
@@ -121,6 +123,10 @@ func TestWithObserversAcceptNil(t *testing.T) {
 
 	if resolved.observer != nil || resolved.populationObserver != nil || resolved.logger != nil {
 		t.Error("a nil argument must leave the corresponding hook disabled")
+	}
+
+	if resolved.archiveObserver != nil {
+		t.Error("WithArchiveObserver(nil) must leave archive reporting disabled")
 	}
 }
 
@@ -404,6 +410,14 @@ func TestObserversRunSynchronouslyOnTheCallingGoroutine(t *testing.T) {
 	if populationCalls != 1 {
 		t.Errorf("population observer had not run when notifyPopulation returned")
 	}
+
+	archiveCalls := 0
+
+	notifyArchive(func(ArchiveSnapshot) { archiveCalls++ }, 1, 1, nil)
+
+	if archiveCalls != 1 {
+		t.Errorf("archive observer had not run when notifyArchive returned")
+	}
 }
 
 func TestCloneHelpersProduceIndependentValues(t *testing.T) {
@@ -474,5 +488,214 @@ func TestRequireContext(t *testing.T) {
 	err = requireContext(context.Background())
 	if err != nil {
 		t.Errorf("requireContext(context.Background()) = %v, want nil", err)
+	}
+}
+
+func TestWithArchiveObserverApplies(t *testing.T) {
+	calls := 0
+
+	resolved, err := resolveRunOptions([]RunOption{
+		WithArchiveObserver(func(ArchiveSnapshot) { calls++ }),
+	})
+	if err != nil {
+		t.Fatalf("resolveRunOptions: %v", err)
+	}
+
+	if resolved.archiveObserver == nil {
+		t.Fatal("archive observer was not registered")
+	}
+
+	resolved.archiveObserver(ArchiveSnapshot{})
+
+	if calls != 1 {
+		t.Errorf("observer called %d times, want 1", calls)
+	}
+}
+
+func TestLastArchiveObserverWins(t *testing.T) {
+	first := 0
+	second := 0
+
+	resolved, err := resolveRunOptions([]RunOption{
+		WithArchiveObserver(func(ArchiveSnapshot) { first++ }),
+		WithArchiveObserver(func(ArchiveSnapshot) { second++ }),
+	})
+	if err != nil {
+		t.Fatalf("resolveRunOptions: %v", err)
+	}
+
+	resolved.archiveObserver(ArchiveSnapshot{})
+
+	if first != 0 || second != 1 {
+		t.Errorf("observer calls = (%d, %d), want the last option to win", first, second)
+	}
+}
+
+// TestNotifyArchiveHandsOutIndependentCopies is the no-back-door invariant for
+// the multi-objective path: an observer holds a copy, never a view into the
+// archive the optimizer is still mutating.
+func TestNotifyArchiveHandsOutIndependentCopies(t *testing.T) {
+	archive := NewParetoArchiveWithGrid(4, 4, 4, 2, 2)
+	rng := rand.New(rand.NewSource(1))
+
+	archive.Add(&ParetoSolution{
+		Position:        []float64{1, 2},
+		ObjectiveValues: []float64{0.25, 0.75},
+	}, rng)
+	archive.Add(&ParetoSolution{
+		Position:        []float64{3, 4},
+		ObjectiveValues: []float64{0.75, 0.25},
+	}, rng)
+
+	if archive.Len() != 2 {
+		t.Fatalf("archive holds %d solutions, want 2", archive.Len())
+	}
+
+	var snapshots []ArchiveSnapshot
+
+	notifyArchive(func(snapshot ArchiveSnapshot) {
+		snapshots = append(snapshots, snapshot)
+
+		// Reach into every copy the observer was handed. None of it may be
+		// aliased to state the optimizer is still using.
+		snapshot.Solutions[0].Position[0] = 999
+		snapshot.Solutions[0].ObjectiveValues[0] = 999
+
+		if len(snapshot.Solutions[0].GridIndex) > 0 {
+			snapshot.Solutions[0].GridIndex[0] = 999
+		}
+
+		snapshot.GridLower[0] = 999
+		snapshot.GridUpper[0] = 999
+		snapshot.Solutions = nil
+	}, 3, 24, archive)
+
+	if len(snapshots) != 1 {
+		t.Fatalf("observer called %d times, want 1", len(snapshots))
+	}
+
+	snapshot := snapshots[0]
+
+	if snapshot.Iteration != 3 || snapshot.EvaluationCount != 24 {
+		t.Errorf("snapshot = (iteration %d, evaluations %d), want (3, 24)",
+			snapshot.Iteration, snapshot.EvaluationCount)
+	}
+
+	if snapshot.NGrid != 4 {
+		t.Errorf("snapshot.NGrid = %d, want 4", snapshot.NGrid)
+	}
+
+	if archive.Solutions[0].Position[0] != 1 {
+		t.Errorf("observer reached the archive's position vector: %v", archive.Solutions[0].Position)
+	}
+
+	if archive.Solutions[0].ObjectiveValues[0] != 0.25 {
+		t.Errorf("observer reached the archive's objective values: %v",
+			archive.Solutions[0].ObjectiveValues)
+	}
+
+	if len(archive.Solutions[0].GridIndex) > 0 && archive.Solutions[0].GridIndex[0] == 999 {
+		t.Error("observer reached the archive's grid index")
+	}
+
+	if archive.lowerBounds[0] == 999 || archive.upperBounds[0] == 999 {
+		t.Errorf("observer reached the archive's grid bounds: %v / %v",
+			archive.lowerBounds, archive.upperBounds)
+	}
+}
+
+func TestNotifyArchiveWithoutObserverIsANoOp(t *testing.T) {
+	archive := NewParetoArchive(4)
+	rng := rand.New(rand.NewSource(1))
+
+	archive.Add(&ParetoSolution{
+		Position:        []float64{1, 2},
+		ObjectiveValues: []float64{0.5, 0.5},
+	}, rng)
+
+	notifyArchive(nil, 1, 1, archive)
+
+	if archive.Solutions[0].Position[0] != 1 {
+		t.Error("notifyArchive(nil, ...) modified the archive")
+	}
+}
+
+// TestNotifyArchiveHandlesANilArchive covers the shape a canceled or
+// never-started run would produce: reporting an empty snapshot beats panicking
+// inside a caller's observer.
+func TestNotifyArchiveHandlesANilArchive(t *testing.T) {
+	calls := 0
+
+	notifyArchive(func(snapshot ArchiveSnapshot) {
+		calls++
+
+		if snapshot.Solutions != nil || snapshot.GridLower != nil || snapshot.GridUpper != nil {
+			t.Errorf("nil archive produced a non-empty snapshot: %+v", snapshot)
+		}
+
+		if snapshot.NGrid != 0 {
+			t.Errorf("snapshot.NGrid = %d, want 0 for a nil archive", snapshot.NGrid)
+		}
+	}, 1, 1, nil)
+
+	if calls != 1 {
+		t.Errorf("observer called %d times, want 1", calls)
+	}
+}
+
+func TestCloneParetoSolutionsProducesIndependentValues(t *testing.T) {
+	if cloneParetoSolutions(nil) != nil {
+		t.Error("cloneParetoSolutions(nil) must be nil")
+	}
+
+	source := []*ParetoSolution{{
+		Position:            []float64{1, 2},
+		ObjectiveValues:     []float64{3, 4},
+		GridIndex:           []int{5, 6},
+		CrowdingDistance:    7,
+		ConstraintViolation: 8,
+		GridKey:             9,
+	}}
+
+	cloned := cloneParetoSolutions(source)
+
+	cloned[0].Position[0] = 999
+	cloned[0].ObjectiveValues[0] = 999
+	cloned[0].GridIndex[0] = 999
+
+	if source[0].Position[0] != 1 || source[0].ObjectiveValues[0] != 3 || source[0].GridIndex[0] != 5 {
+		t.Error("clone aliases the source solution")
+	}
+
+	if cloned[0].ConstraintViolation != 8 || cloned[0].GridKey != 9 {
+		t.Errorf("clone lost scalar fields: %+v", cloned[0])
+	}
+}
+
+func TestValidateSingleObjectiveRunOptionsRejectsArchiveObserver(t *testing.T) {
+	resolved, err := resolveRunOptions([]RunOption{
+		WithArchiveObserver(func(ArchiveSnapshot) {}),
+	})
+	if err != nil {
+		t.Fatalf("resolveRunOptions: %v", err)
+	}
+
+	optionErr := validateSingleObjectiveRunOptions(resolved)
+	if optionErr == nil {
+		t.Fatal("a single-objective run must reject WithArchiveObserver")
+	}
+
+	if !strings.Contains(optionErr.Error(), "WithArchiveObserver") {
+		t.Errorf("error does not name the option: %v", optionErr)
+	}
+
+	// A nil observer registers nothing and must not be rejected.
+	empty, err := resolveRunOptions([]RunOption{WithArchiveObserver(nil)})
+	if err != nil {
+		t.Fatalf("resolveRunOptions: %v", err)
+	}
+
+	if validateSingleObjectiveRunOptions(empty) != nil {
+		t.Error("WithArchiveObserver(nil) must not be rejected")
 	}
 }

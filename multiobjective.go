@@ -321,6 +321,26 @@ func (pa *ParetoArchive) Len() int {
 // overflow eviction. A nil rng makes that eviction deterministic (the first
 // member of the most crowded cell), which keeps the archive usable outside a
 // seeded run.
+// GridBounds returns the per-objective extent of the archive's contents -- the
+// lower bounds first, then the upper -- which is also the extent of the
+// hypercube grid: bin b of objective m spans one NGrid-th of
+// [lower[m], upper[m]], and that is the frame every solution's GridIndex is
+// expressed in.
+//
+// Both slices are copies. The archive rewrites its bounds through the existing
+// backing arrays on every mutation (see recomputeBounds), so a shared slice
+// would silently change under the caller and would be a write path back into a
+// running optimizer.
+//
+// A nil or empty archive has no extent and returns two nil slices.
+func (pa *ParetoArchive) GridBounds() ([]float64, []float64) {
+	if pa == nil {
+		return nil, nil
+	}
+
+	return copyVec(pa.lowerBounds), copyVec(pa.upperBounds)
+}
+
 func (pa *ParetoArchive) Add(solution *ParetoSolution, rng *rand.Rand) bool {
 	if pa == nil || solution == nil || len(solution.ObjectiveValues) == 0 {
 		return false
@@ -1048,10 +1068,19 @@ type moState struct {
 // It changes nothing else: a seeded run is bit-identical with it set or not,
 // because no worker draws a random number and the archive is built in swarm
 // index order on the calling goroutine either way.
-func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (*MultiObjectiveResult, error) {
+func OptimizeMultiObjective(
+	ctx context.Context,
+	config *MultiObjectiveConfig,
+	options ...RunOption,
+) (*MultiObjectiveResult, error) {
 	contextErr := requireContext(ctx)
 	if contextErr != nil {
 		return nil, contextErr
+	}
+
+	resolved, optionsErr := resolveRunOptions(options)
+	if optionsErr != nil {
+		return nil, optionsErr
 	}
 
 	validationErr := validateMultiObjectiveConfig(config)
@@ -1059,7 +1088,20 @@ func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (
 		return nil, validationErr
 	}
 
+	optionMeaningErr := validateMultiObjectiveRunOptions(resolved)
+	if optionMeaningErr != nil {
+		return nil, optionMeaningErr
+	}
+
 	swarmConfig := config.Swarm
+
+	// As in OptimizeContext, the seeded population is checked only after the
+	// config is known good: the check is against ProblemSize, NPop and the
+	// bounds.
+	populationErr := validateInitialPopulation(swarmConfig, resolved)
+	if populationErr != nil {
+		return nil, populationErr
+	}
 
 	// The seed is drawn whether or not it is used, so Seed is always populated;
 	// this is the convention OptimizeContext follows.
@@ -1070,7 +1112,7 @@ func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (
 
 	rng := swarmConfig.Rand
 
-	state, initErr := initializeMultiObjectiveRun(ctx, config, rng)
+	state, initErr := initializeMultiObjectiveRun(ctx, config, resolved, rng)
 	if initErr != nil {
 		return nil, initErr
 	}
@@ -1094,6 +1136,8 @@ func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (
 		completed = t + 1
 
 		curve = append(curve, state.archive.Len())
+
+		notifyArchive(resolved.archiveObserver, completed, state.funcEvals, state.archive)
 
 		stopReason, stop := tracker.observe(completed, accepted)
 		if stop {
@@ -1122,15 +1166,27 @@ func OptimizeMultiObjective(ctx context.Context, config *MultiObjectiveConfig) (
 func initializeMultiObjectiveRun(
 	ctx context.Context,
 	config *MultiObjectiveConfig,
+	options runOptions,
 	rng *rand.Rand,
 ) (*moState, error) {
 	swarmConfig := config.Swarm
 	swarm := make([]Dragonfly, swarmConfig.NPop)
 
 	for i := range swarm {
+		// Both draws are taken before a seeded position replaces the first,
+		// exactly as initializeRun does it: skipping the draw for a seeded
+		// slot would shift the random stream for every dragonfly after it, so
+		// seeding one position would change the whole run.
+		position := unifrndVec(swarmConfig.LowerBound, swarmConfig.UpperBound, swarmConfig.ProblemSize, rng)
+		step := unifrndVec(swarmConfig.LowerBound, swarmConfig.UpperBound, swarmConfig.ProblemSize, rng)
+
+		if i < len(options.initialPositions) {
+			position = copyVec(options.initialPositions[i])
+		}
+
 		swarm[i] = Dragonfly{
-			Position: unifrndVec(swarmConfig.LowerBound, swarmConfig.UpperBound, swarmConfig.ProblemSize, rng),
-			Step:     unifrndVec(swarmConfig.LowerBound, swarmConfig.UpperBound, swarmConfig.ProblemSize, rng),
+			Position: position,
+			Step:     step,
 			Cost:     math.Inf(1),
 		}
 	}
@@ -1454,4 +1510,37 @@ func (result *MultiObjectiveResult) paretoPoints() ([]ParetoPoint, error) {
 	}
 
 	return points, nil
+}
+
+// validateMultiObjectiveRunOptions rejects the run options that have no
+// multi-objective reading.
+//
+// It is the rule validateMultiObjectiveConvergence applies to a target cost,
+// applied one layer out: a caller who registers an observer is waiting for
+// something, and a run that quietly never calls it is worse than one that
+// refuses to start. WithInitialPopulation and WithArchiveObserver carry over
+// unchanged and are not checked here.
+func validateMultiObjectiveRunOptions(options runOptions) error {
+	if options.observer != nil {
+		return errors.New(
+			"WithProgressObserver has no meaning for a multi-objective run: " +
+				"a Pareto front has no single best cost; use WithArchiveObserver")
+	}
+
+	if options.populationObserver != nil {
+		return errors.New(
+			"WithPopulationObserver has no meaning for a multi-objective run: " +
+				"the food source and the enemy are per-iteration archive draws " +
+				"rather than incumbents, so Best and Worst have nothing to report; " +
+				"use WithArchiveObserver")
+	}
+
+	if options.logger != nil {
+		return errors.New(
+			"WithLogger is not supported for a multi-objective run: " +
+				"its iteration and completion events report a single best cost " +
+				"and a *Result, neither of which a Pareto run has")
+	}
+
+	return nil
 }

@@ -6,11 +6,14 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"hash/fnv"
+	"log/slog"
 	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -1461,4 +1464,357 @@ func archiveDigest(archive *ParetoArchive) uint64 {
 	}
 
 	return digest.Sum64()
+}
+
+// TestOptimizeMultiObjectiveNotifiesArchiveObserver pins where the observer
+// fires as much as that it fires. The assertion that ties snapshot i's size to
+// ArchiveSizeCurve[i] is the one that fails if the notification moves before
+// advance or after the stagnation break.
+func TestOptimizeMultiObjectiveNotifiesArchiveObserver(t *testing.T) {
+	config := newMultiObjectiveTestConfig(ZDT1, 3, 10, 7)
+
+	var snapshots []ArchiveSnapshot
+
+	result, err := OptimizeMultiObjective(context.Background(), config,
+		WithArchiveObserver(func(snapshot ArchiveSnapshot) {
+			snapshots = append(snapshots, snapshot)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("OptimizeMultiObjective: %v", err)
+	}
+
+	if len(snapshots) != result.IterationCount {
+		t.Fatalf("observer called %d times, want one per completed iteration (%d)",
+			len(snapshots), result.IterationCount)
+	}
+
+	for i, snapshot := range snapshots {
+		if snapshot.Iteration != i+1 {
+			t.Fatalf("snapshot %d reports iteration %d, want %d (one-based, no gaps)",
+				i, snapshot.Iteration, i+1)
+		}
+
+		if len(snapshot.Solutions) != result.ArchiveSizeCurve[i] {
+			t.Fatalf("snapshot %d holds %d solutions, want ArchiveSizeCurve[%d] = %d",
+				i, len(snapshot.Solutions), i, result.ArchiveSizeCurve[i])
+		}
+
+		if snapshot.NGrid != config.NGrid {
+			t.Errorf("snapshot %d reports NGrid %d, want %d", i, snapshot.NGrid, config.NGrid)
+		}
+
+		if len(snapshot.Solutions) > 0 {
+			if len(snapshot.GridLower) != 2 || len(snapshot.GridUpper) != 2 {
+				t.Fatalf("snapshot %d has grid bounds %v / %v, want one pair per objective",
+					i, snapshot.GridLower, snapshot.GridUpper)
+			}
+		}
+
+		if i > 0 && snapshot.EvaluationCount < snapshots[i-1].EvaluationCount {
+			t.Errorf("evaluation count fell from %d to %d at snapshot %d",
+				snapshots[i-1].EvaluationCount, snapshot.EvaluationCount, i)
+		}
+	}
+
+	last := snapshots[len(snapshots)-1]
+	if len(last.Solutions) != result.Archive.Len() {
+		t.Errorf("final snapshot holds %d solutions, archive holds %d",
+			len(last.Solutions), result.Archive.Len())
+	}
+
+	if last.EvaluationCount != result.FuncEvalCount {
+		t.Errorf("final snapshot reports %d evaluations, result reports %d",
+			last.EvaluationCount, result.FuncEvalCount)
+	}
+}
+
+// TestOptimizeMultiObjectiveObserverDoesNotChangeASeededRun is the invariant
+// the whole observer design rests on: watching a run must not be able to alter
+// it, whether through the RNG or through evaluation ordering.
+func TestOptimizeMultiObjectiveObserverDoesNotChangeASeededRun(t *testing.T) {
+	plain, err := OptimizeMultiObjective(context.Background(),
+		newMultiObjectiveTestConfig(ZDT1, 4, 30, 99))
+	if err != nil {
+		t.Fatalf("unobserved run failed: %v", err)
+	}
+
+	observed, err := OptimizeMultiObjective(context.Background(),
+		newMultiObjectiveTestConfig(ZDT1, 4, 30, 99),
+		WithArchiveObserver(func(ArchiveSnapshot) {}),
+	)
+	if err != nil {
+		t.Fatalf("observed run failed: %v", err)
+	}
+
+	if plain.FuncEvalCount != observed.FuncEvalCount {
+		t.Errorf("evaluation counts differ: %d and %d", plain.FuncEvalCount, observed.FuncEvalCount)
+	}
+
+	if plain.IterationCount != observed.IterationCount {
+		t.Errorf("iteration counts differ: %d and %d", plain.IterationCount, observed.IterationCount)
+	}
+
+	if plain.TerminationReason != observed.TerminationReason {
+		t.Errorf("termination reasons differ: %q and %q",
+			plain.TerminationReason, observed.TerminationReason)
+	}
+
+	if !reflect.DeepEqual(plain.ArchiveSizeCurve, observed.ArchiveSizeCurve) {
+		t.Errorf("archive size curves differ:\n%v\n%v", plain.ArchiveSizeCurve, observed.ArchiveSizeCurve)
+	}
+
+	if plain.Archive.Len() != observed.Archive.Len() {
+		t.Fatalf("archive sizes differ: %d and %d", plain.Archive.Len(), observed.Archive.Len())
+	}
+
+	for i := range plain.Archive.Solutions {
+		a := plain.Archive.Solutions[i]
+		b := observed.Archive.Solutions[i]
+
+		if !reflect.DeepEqual(a.ObjectiveValues, b.ObjectiveValues) {
+			t.Fatalf("solution %d objectives differ: %v and %v", i, a.ObjectiveValues, b.ObjectiveValues)
+		}
+
+		if !reflect.DeepEqual(a.Position, b.Position) {
+			t.Fatalf("solution %d position differs: %v and %v", i, a.Position, b.Position)
+		}
+	}
+}
+
+// TestOptimizeMultiObjectiveObserverCannotMutateTheArchive writes a dominating
+// sentinel into every snapshot it is handed. A leak would dominate the whole
+// front, so the invariant check afterwards fails loudly rather than subtly.
+func TestOptimizeMultiObjectiveObserverCannotMutateTheArchive(t *testing.T) {
+	const sentinel = -1e9
+
+	result, err := OptimizeMultiObjective(context.Background(),
+		newMultiObjectiveTestConfig(ZDT1, 3, 20, 11),
+		WithArchiveObserver(func(snapshot ArchiveSnapshot) {
+			for _, solution := range snapshot.Solutions {
+				for m := range solution.ObjectiveValues {
+					solution.ObjectiveValues[m] = sentinel
+				}
+
+				for j := range solution.Position {
+					solution.Position[j] = sentinel
+				}
+			}
+
+			for m := range snapshot.GridLower {
+				snapshot.GridLower[m] = sentinel
+				snapshot.GridUpper[m] = sentinel
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("OptimizeMultiObjective: %v", err)
+	}
+
+	if !result.Archive.IsNonDominated() {
+		t.Error("the archive lost its non-domination invariant to an observer")
+	}
+
+	for i, solution := range result.Archive.Solutions {
+		for m, value := range solution.ObjectiveValues {
+			if value == sentinel {
+				t.Fatalf("solution %d objective %d was written by the observer", i, m)
+			}
+		}
+
+		for j, value := range solution.Position {
+			if value == sentinel {
+				t.Fatalf("solution %d component %d was written by the observer", i, j)
+			}
+		}
+	}
+}
+
+// TestOptimizeMultiObjectiveRejectsSingleObjectiveRunOptions covers the rule
+// that an option with no multi-objective reading is refused rather than
+// silently ignored -- the same rule validateMultiObjectiveConvergence applies
+// to a target cost.
+func TestOptimizeMultiObjectiveRejectsSingleObjectiveRunOptions(t *testing.T) {
+	tests := []struct {
+		option RunOption
+		name   string
+		names  string
+	}{
+		{
+			name:   "progress_observer",
+			option: WithProgressObserver(func(Progress) {}),
+			names:  "WithProgressObserver",
+		},
+		{
+			name:   "population_observer",
+			option: WithPopulationObserver(func(PopulationSnapshot) {}),
+			names:  "WithPopulationObserver",
+		},
+		{
+			name:   "logger",
+			option: WithLogger(slog.Default()),
+			names:  "WithLogger",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := OptimizeMultiObjective(context.Background(),
+				newMultiObjectiveTestConfig(ZDT1, 3, 5, 3), test.option)
+			if err == nil {
+				t.Fatal("the option was accepted")
+			}
+
+			if result != nil {
+				t.Error("a rejected run must not return a partial result")
+			}
+
+			if !strings.Contains(err.Error(), test.names) {
+				t.Errorf("error does not name the option: %v", err)
+			}
+		})
+	}
+
+	// A nil observer registers nothing, so it has nothing to reject.
+	t.Run("nil_observer_is_accepted", func(t *testing.T) {
+		_, err := OptimizeMultiObjective(context.Background(),
+			newMultiObjectiveTestConfig(ZDT1, 3, 5, 3), WithProgressObserver(nil))
+		if err != nil {
+			t.Errorf("WithProgressObserver(nil) was rejected: %v", err)
+		}
+	})
+}
+
+func TestOptimizeMultiObjectiveSeedsInitialPopulation(t *testing.T) {
+	config := newMultiObjectiveTestConfig(ZDT1, 3, 5, 5)
+
+	result, err := OptimizeMultiObjective(context.Background(), config,
+		WithInitialPopulation([][]float64{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}}))
+	if err != nil {
+		t.Fatalf("a valid seeded population was rejected: %v", err)
+	}
+
+	if result.Archive.Len() == 0 {
+		t.Error("a seeded run produced an empty archive")
+	}
+
+	t.Run("wrong_dimension", func(t *testing.T) {
+		_, err := OptimizeMultiObjective(context.Background(),
+			newMultiObjectiveTestConfig(ZDT1, 3, 5, 5),
+			WithInitialPopulation([][]float64{{0.1, 0.2}}))
+		if err == nil {
+			t.Error("a position of the wrong dimension was accepted")
+		}
+	})
+
+	t.Run("out_of_bounds", func(t *testing.T) {
+		_, err := OptimizeMultiObjective(context.Background(),
+			newMultiObjectiveTestConfig(ZDT1, 3, 5, 5),
+			WithInitialPopulation([][]float64{{0.1, 0.2, 7}}))
+		if err == nil {
+			t.Error("a position outside the bounds was accepted")
+		}
+	})
+}
+
+// TestOptimizeMultiObjectiveObserverStopsWithTheRun covers both ways a run can
+// end early. A canceled iteration reports nothing, and a stagnating one still
+// reports the iteration that triggered the stop.
+func TestOptimizeMultiObjectiveObserverStopsWithTheRun(t *testing.T) {
+	t.Run("cancellation", func(t *testing.T) {
+		config := newMultiObjectiveTestConfig(ZDT1, 3, 50, 13)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		highest := 0
+
+		_, err := OptimizeMultiObjective(ctx, config,
+			WithArchiveObserver(func(snapshot ArchiveSnapshot) {
+				highest = snapshot.Iteration
+
+				if snapshot.Iteration == 3 {
+					cancel()
+				}
+			}),
+		)
+		if err == nil {
+			t.Fatal("a canceled run must return an error")
+		}
+
+		if highest >= config.Swarm.MaxIterations {
+			t.Errorf("observer saw iteration %d of %d; the run was not cut short",
+				highest, config.Swarm.MaxIterations)
+		}
+	})
+
+	t.Run("stagnation", func(t *testing.T) {
+		config := newMultiObjectiveTestConfig(ZDT1, 3, 60, 21)
+		config.Swarm.Convergence = &ConvergenceConfig{
+			StagnationIterations: 3,
+			MinIterations:        1,
+		}
+
+		count := 0
+
+		result, err := OptimizeMultiObjective(context.Background(), config,
+			WithArchiveObserver(func(ArchiveSnapshot) { count++ }))
+		if err != nil {
+			t.Fatalf("OptimizeMultiObjective: %v", err)
+		}
+
+		if count != result.IterationCount {
+			t.Errorf("observer called %d times, want %d -- the final, stagnant iteration counts too",
+				count, result.IterationCount)
+		}
+	})
+}
+
+// TestParetoArchiveGridBoundsReturnsCopies covers the reason GridBounds copies:
+// the archive rewrites its bounds through the same backing arrays on every
+// mutation, so a shared slice would be a write path back into a running run.
+func TestParetoArchiveGridBoundsReturnsCopies(t *testing.T) {
+	var nilArchive *ParetoArchive
+
+	lower, upper := nilArchive.GridBounds()
+	if lower != nil || upper != nil {
+		t.Errorf("a nil archive reported bounds %v / %v, want nil / nil", lower, upper)
+	}
+
+	archive := NewParetoArchiveWithGrid(8, 4, 4, 2, 2)
+
+	lower, upper = archive.GridBounds()
+	if lower != nil || upper != nil {
+		t.Errorf("an empty archive reported bounds %v / %v, want nil / nil", lower, upper)
+	}
+
+	rng := rand.New(rand.NewSource(2))
+	archive.Add(&ParetoSolution{Position: []float64{0}, ObjectiveValues: []float64{0.25, 0.75}}, rng)
+	archive.Add(&ParetoSolution{Position: []float64{1}, ObjectiveValues: []float64{0.75, 0.25}}, rng)
+
+	lower, upper = archive.GridBounds()
+
+	if !reflect.DeepEqual(lower, []float64{0.25, 0.25}) {
+		t.Errorf("lower bounds = %v, want [0.25 0.25]", lower)
+	}
+
+	if !reflect.DeepEqual(upper, []float64{0.75, 0.75}) {
+		t.Errorf("upper bounds = %v, want [0.75 0.75]", upper)
+	}
+
+	lower[0] = 999
+	upper[0] = 999
+
+	if archive.lowerBounds[0] == 999 || archive.upperBounds[0] == 999 {
+		t.Errorf("GridBounds aliased the archive: %v / %v", archive.lowerBounds, archive.upperBounds)
+	}
+
+	// The grid must still bin a new solution against the untouched bounds.
+	archive.Add(&ParetoSolution{Position: []float64{2}, ObjectiveValues: []float64{0.5, 0.5}}, rng)
+
+	for _, solution := range archive.Solutions {
+		for m, index := range solution.GridIndex {
+			if index < 0 || index >= archive.NGrid {
+				t.Fatalf("grid index %d on objective %d is outside [0, %d)", index, m, archive.NGrid)
+			}
+		}
+	}
 }

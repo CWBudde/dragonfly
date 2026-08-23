@@ -15,7 +15,9 @@ import "syscall/js"
 // is the single rule this bridge has: nothing reaches JavaScript without a
 // recover() in front of it (see bridge.go).
 var exports = map[string]func(js.Value) any{
-	"info": jsInfo,
+	"info":      jsInfo,
+	"run":       jsRun,
+	"landscape": jsLandscape,
 }
 
 // live keeps the js.Func values referenced so they are never released.

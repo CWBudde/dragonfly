@@ -556,3 +556,20 @@ func TestBinaryPositionsValidRejectsNonBits(t *testing.T) {
 		}
 	}
 }
+
+func TestOptimizeBinaryContextRejectsArchiveObserver(t *testing.T) {
+	config := NewBinaryConfig()
+	config.ObjectiveFunc = Sphere
+	config.ProblemSize = 4
+	config.MaxIterations = 2
+
+	result, err := OptimizeBinaryContext(context.Background(), config,
+		WithArchiveObserver(func(ArchiveSnapshot) {}))
+	if err == nil {
+		t.Fatal("a binary run accepted WithArchiveObserver")
+	}
+
+	if result != nil {
+		t.Error("a rejected run must not return a partial result")
+	}
+}

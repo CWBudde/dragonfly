@@ -232,6 +232,11 @@ func setupBinaryRun(ctx context.Context, config *Config, options []RunOption) (*
 // validateBinaryRun runs the shared configuration checks, the binary-only ones,
 // and resolves the transfer function.
 func validateBinaryRun(config *Config, options runOptions) (transferFunc, error) {
+	optionMeaningErr := validateSingleObjectiveRunOptions(options)
+	if optionMeaningErr != nil {
+		return nil, optionMeaningErr
+	}
+
 	validationErr := validateConfig(config)
 	if validationErr != nil {
 		return nil, validationErr

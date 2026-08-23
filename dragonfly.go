@@ -85,6 +85,11 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 		return nil, optionsErr
 	}
 
+	optionMeaningErr := validateSingleObjectiveRunOptions(resolved)
+	if optionMeaningErr != nil {
+		return nil, optionMeaningErr
+	}
+
 	validationErr := validateConfig(config)
 	if validationErr != nil {
 		return nil, validationErr
