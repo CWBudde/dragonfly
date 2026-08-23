@@ -1,6 +1,6 @@
 # Dragonfly Algorithm (Go) — Implementation Plan
 
-Module: `github.com/CWBudde/Dragonfly`
+Module: `github.com/CWBudde/dragonfly`
 Package: `dragonfly` (flat, at the repository root)
 Status: **Phase 1 in progress** — scaffold laid, no algorithm code yet.
 
@@ -253,7 +253,7 @@ Dragonfly/
 ### 1.1 Tooling
 
 - [x] `.golangci.toml` — copied from Mayfly with the gci/goimports local prefix swapped to
-      `github.com/CWBudde/Dragonfly`, and **without** Mayfly's per-file complexity
+      `github.com/CWBudde/dragonfly`, and **without** Mayfly's per-file complexity
       exemptions
 - [x] `treefmt.toml` — gofumpt → gci for Go, prettier for md/json/yaml, taplo for toml,
       shellcheck → shfmt for shell
@@ -261,9 +261,9 @@ Dragonfly/
 - [x] `LICENSE` — MIT, "Copyright (c) 2026 Christian-W. Budde"
 - [x] `.github/workflows/test.yml` — format / lint / test (Go 1.23 + 1.24 matrix) / benchmark
 - [x] `.github/workflows/release.yml` — semver validation, metadata checks, module-path
-      assertion against `github.com/CWBudde/Dragonfly`
+      assertion against `github.com/CWBudde/dragonfly`
 - [x] `justfile` — Mayfly's recipes minus the wasm ones
-- [x] `go.mod` — `module github.com/CWBudde/Dragonfly`, `go 1.23.3`
+- [x] `go.mod` — `module github.com/CWBudde/dragonfly`, `go 1.23.3`
 
 **Rationale**: Getting the linter and formatter contract in place _before_ the first line
 of algorithm code means the house style is enforced from commit one, rather than being
@@ -466,9 +466,9 @@ statistical question with a tolerance attached.
 - [x] `CHANGELOG.md` `## [0.1.0]` entry, including a `Known limitations` section that
       names the unverified MODA and BDA constants rather than leaving them implied
 - [x] `just release-check 0.1.0` passes
-- [x] Tag `v0.1.0`, annotated and pushed to `github.com/CWBudde/Dragonfly`; the Go
+- [x] Tag `v0.1.0`, annotated and pushed to `github.com/CWBudde/dragonfly`; the Go
       module proxy handles publication from there.
-- [x] Module path corrected to `github.com/CWBudde/Dragonfly`. It was
+- [x] Module path corrected to `github.com/CWBudde/dragonfly`. It was
       `github.com/MeKo-Christian/dragonfly`, which matched no repository that exists,
       so `go get` could not have resolved the module under either name. Because the
       repository is `Dragonfly` and the package is `dragonfly`, every import of the

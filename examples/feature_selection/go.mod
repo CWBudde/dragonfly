@@ -1,7 +1,7 @@
-module github.com/CWBudde/Dragonfly/examples/feature_selection
+module github.com/CWBudde/dragonfly/examples/feature_selection
 
 go 1.23.3
 
-require github.com/CWBudde/Dragonfly v0.0.0
+require github.com/CWBudde/dragonfly v0.0.0
 
-replace github.com/CWBudde/Dragonfly => ../..
+replace github.com/CWBudde/dragonfly => ../..

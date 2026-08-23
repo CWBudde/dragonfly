@@ -99,5 +99,5 @@ Recorded in `PLAN.md` rather than hidden:
 - `Levy([])` panics and empty-input handling is inconsistent across the benchmark suite.
   Neither affects a real optimization, where every position has at least one component.
 
-[Unreleased]: https://github.com/CWBudde/Dragonfly/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/CWBudde/Dragonfly/releases/tag/v0.1.0
+[Unreleased]: https://github.com/CWBudde/dragonfly/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/CWBudde/dragonfly/releases/tag/v0.1.0

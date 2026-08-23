@@ -26,7 +26,7 @@ import (
 	"os"
 	"path/filepath"
 
-	dragonfly "github.com/CWBudde/Dragonfly"
+	"github.com/CWBudde/dragonfly"
 )
 
 const (

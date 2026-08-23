@@ -42,7 +42,7 @@ import (
 	"math"
 	"math/rand"
 
-	dragonfly "github.com/CWBudde/Dragonfly"
+	"github.com/CWBudde/dragonfly"
 )
 
 const (

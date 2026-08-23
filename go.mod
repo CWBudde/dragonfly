@@ -1,4 +1,4 @@
-module github.com/CWBudde/Dragonfly
+module github.com/CWBudde/dragonfly
 
 go 1.23.3
 

@@ -15,7 +15,7 @@ fetching it once through the public proxy is the whole publication step.
   changelog.
 - Use a prerelease suffix such as `v0.2.0-rc.1` for release candidates.
 - From `v1.0.0` onwards, increment **MAJOR** for breaking changes. A future v2 must also change
-  the module path to `github.com/CWBudde/Dragonfly/v2`.
+  the module path to `github.com/CWBudde/dragonfly/v2`.
 - **Never move or replace a published tag.** The Go module proxy caches tags immutably; publish
   a new version for corrections.
 
@@ -47,9 +47,9 @@ Beyond the obvious signature changes, three things specific to this library:
 7. Push the commit and the tag: `git push origin main vMAJOR.MINOR.PATCH`.
 8. Confirm the GitHub release-validation workflow succeeds.
 9. Ask the public Go proxy to fetch the immutable tag:
-   `GOPROXY=proxy.golang.org go list -m github.com/CWBudde/Dragonfly@vMAJOR.MINOR.PATCH`
+   `GOPROXY=proxy.golang.org go list -m github.com/CWBudde/dragonfly@vMAJOR.MINOR.PATCH`
 10. Verify the version and the rendered package documentation at
-    <https://pkg.go.dev/github.com/CWBudde/Dragonfly>.
+    <https://pkg.go.dev/github.com/CWBudde/dragonfly>.
 
 ## What `just release-check` verifies
 
@@ -60,7 +60,7 @@ just release-check 0.1.0
 - the argument is a valid semantic version
 - `CHANGELOG.md` contains a `## [0.1.0]` section
 - `LICENSE` and `README.md` are non-empty
-- `go list -m` reports exactly `github.com/CWBudde/Dragonfly`
+- `go list -m` reports exactly `github.com/CWBudde/dragonfly`
 - `just verify` — `go mod verify`
 - `just check-formatted` — `treefmt --fail-on-change`
 - `just check-tidy` — `go mod tidy -diff`

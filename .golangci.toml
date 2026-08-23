@@ -193,10 +193,10 @@ severity = 'info'
 enable = ['gci', 'gofumpt', 'goimports']
 
 [formatters.settings.gci]
-sections = ['standard', 'default', 'prefix(github.com/CWBudde/Dragonfly)']
+sections = ['standard', 'default', 'prefix(github.com/CWBudde/dragonfly)']
 
 [formatters.settings.goimports]
-local-prefixes = ['github.com/CWBudde/Dragonfly']
+local-prefixes = ['github.com/CWBudde/dragonfly']
 
 [formatters.exclusions]
 generated = 'lax'

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	dragonfly "github.com/CWBudde/Dragonfly"
+	"github.com/CWBudde/dragonfly"
 )
 
 const (

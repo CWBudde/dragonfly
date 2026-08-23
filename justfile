@@ -219,7 +219,7 @@ optimize func="Sphere" size="30" iter="1000":
     package main
     import (
         "fmt"
-        "github.com/CWBudde/Dragonfly"
+        "github.com/CWBudde/dragonfly"
     )
     func main() {
         config := dragonfly.NewDefaultConfig()
@@ -275,7 +275,7 @@ release-check version:
     grep -Fq "## [$release_version]" CHANGELOG.md
     test -s LICENSE
     test -s README.md
-    test "$(go list -m)" = "github.com/CWBudde/Dragonfly"
+    test "$(go list -m)" = "github.com/CWBudde/dragonfly"
     just verify
     just check-formatted
     just check-tidy

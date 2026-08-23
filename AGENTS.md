@@ -2,7 +2,7 @@
 
 ## Project Structure & Modules
 
-- Root module: `github.com/CWBudde/Dragonfly`, package `dragonfly`, Go 1.23.3.
+- Root module: `github.com/CWBudde/dragonfly`, package `dragonfly`, Go 1.23.3.
 - Flat layout: source and tests are siblings at the repo root (`*.go`, `*_test.go`). No `internal/`, `pkg/`, or `cmd/`.
 - Docs in `docs/`; runnable examples in `examples/` (each subdirectory its own module with a `replace` directive); Gherkin features in `features/`.
 - Tooling configs: `.golangci.toml` (TOML, golangci-lint v2), `treefmt.toml`, `justfile`.
@@ -23,7 +23,7 @@
 
 ## Coding Style & Naming
 
-- Go defaults: tabs, standard import grouping. Formatting is gofumpt followed by gci (local prefix `github.com/CWBudde/Dragonfly`).
+- Go defaults: tabs, standard import grouping. Formatting is gofumpt followed by gci (local prefix `github.com/CWBudde/dragonfly`).
 - Naming: exported identifiers `CamelCase`, internal `lowerCamel`, packages short and lowercase.
 - Short mathematical identifiers that mirror the paper (`w`, `s`, `a`, `c`, `f`, `e`, `r`, `dX`) are fine and preferred in the algorithm files; keep them out of public API names.
 - Prefer small, cohesive files and pure functions. One concern per file, as in `PLAN.md` §2.
