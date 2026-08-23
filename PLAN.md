@@ -362,7 +362,7 @@ before the complexity is added.
 
 - [x] `binary.go` — `TransferFunction` type, the v1–v4 / s1–s4 registry, bit-flip update
 - [x] `NewBinaryConfig()`
-- [ ] `evaluateParallelBinary`
+- [x] `evaluateParallelBinary`
 - [x] `binary_test.go` — transfer-function curves at sampled points, bit-flip statistics
 - [x] `examples/feature_selection/` — a worked feature-selection problem
 

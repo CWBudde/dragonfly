@@ -611,3 +611,195 @@ func benchmarkSwarm(npop, problemSize int, rng *rand.Rand) []Dragonfly {
 
 	return swarm
 }
+
+// binaryParallelTestConfig builds the binary run every BDA determinism case
+// starts from. The swarm is small and the run short, because the property under
+// test is exact equality rather than solution quality.
+func binaryParallelTestConfig(seed int64, transfer TransferFunction) *Config {
+	config := NewBinaryConfig()
+	config.ObjectiveFunc = binaryTestObjective
+	config.ProblemSize = 24
+	config.NPop = 20
+	config.MaxIterations = 40
+	config.TransferFunc = transfer
+	config.Rand = rand.New(rand.NewSource(seed))
+
+	return config
+}
+
+// binaryTestObjective is the binary determinism sweep's objective, a OneMax
+// written as a minimization: it counts the unset bits, so driving it to zero
+// sets every bit. It lives here rather than in functions.go because it exists
+// only to give the binary runs a cheap landscape with a known optimum to move
+// through.
+func binaryTestObjective(x []float64) float64 {
+	unset := 0.0
+	for _, bit := range x {
+		unset += 1 - bit
+	}
+
+	return unset
+}
+
+// TestBinaryParallelIsDeterministicForSeed is the BDA half of the guard
+// TestParallelIsDeterministicForSeedAcrossSchedules pins for the continuous
+// variant: a seeded binary run must be BIT-IDENTICAL whether or not the
+// objective calls fan out.
+//
+// The binary loop draws one uniform per position component in flipBits, on top
+// of everything the continuous step already draws, so it has strictly more RNG
+// to lose track of. Every transfer function is swept because each one turns the
+// same step into a different flip probability, and a stream that shifted by a
+// single draw would show up as a different trajectory rather than as a
+// different answer.
+func TestBinaryParallelIsDeterministicForSeed(t *testing.T) {
+	seeds := []int64{1, 7, 42}
+	// One worker, a couple of workers, and more workers than there are
+	// dragonflies -- the last one leaves workers idle and is where an
+	// off-by-one in the index handout would show.
+	workerCounts := []int{1, 2, 4, 64}
+
+	for _, transfer := range TransferFunctionNames() {
+		for _, seed := range seeds {
+			sequential, err := OptimizeBinary(binaryParallelTestConfig(seed, transfer))
+			if err != nil {
+				t.Fatalf("%s seed %d: sequential OptimizeBinary() error = %v", transfer, seed, err)
+			}
+
+			assertBinaryPositions(t, fmt.Sprintf("%s/seed=%d sequential", transfer, seed), sequential)
+
+			for _, workers := range workerCounts {
+				config := binaryParallelTestConfig(seed, transfer)
+				config.EnableParallel = true
+				config.MaxWorkers = workers
+
+				parallel, err := OptimizeBinary(config)
+				if err != nil {
+					t.Fatalf("%s seed %d workers %d: parallel OptimizeBinary() error = %v",
+						transfer, seed, workers, err)
+				}
+
+				name := fmt.Sprintf("%s/seed=%d/workers=%d", transfer, seed, workers)
+				assertResultsIdentical(t, name, sequential, parallel)
+				assertBinaryPositions(t, name, parallel)
+			}
+		}
+	}
+}
+
+// assertBinaryPositions checks the invariant the parallel path must not be
+// allowed to break: the positions a binary run reports are still bit vectors.
+// A worker that mutated the swarm instead of only reading it would show up here
+// as a component that is neither zero nor one.
+func assertBinaryPositions(t *testing.T, name string, result *Result) {
+	t.Helper()
+
+	if !BinaryPositionsValid(result.GlobalBest.Position) {
+		t.Errorf("%s: GlobalBest.Position = %v, want a 0/1 vector", name, result.GlobalBest.Position)
+	}
+
+	if !BinaryPositionsValid(result.Worst.Position) {
+		t.Errorf("%s: Worst.Position = %v, want a 0/1 vector", name, result.Worst.Position)
+	}
+}
+
+// TestBinaryParallelWithConstraintsAndEarlyStopping sweeps the two features
+// that change what the reduction and the loop have to agree on -- the
+// constraint ranking the food and enemy are chosen by, and the stagnation
+// tracker that decides when the run ends -- over a parallel binary run.
+func TestBinaryParallelWithConstraintsAndEarlyStopping(t *testing.T) {
+	cases := parallelBinaryCases()
+
+	for _, testCase := range cases {
+		for _, seed := range []int64{2, 13} {
+			sequentialConfig := binaryParallelTestConfig(seed, DefaultTransferFunction)
+			testCase.apply(sequentialConfig)
+
+			sequential, err := OptimizeBinary(sequentialConfig)
+			if err != nil {
+				t.Fatalf("%s seed %d: sequential OptimizeBinary() error = %v", testCase.name, seed, err)
+			}
+
+			for _, workers := range []int{1, 3, 64} {
+				config := binaryParallelTestConfig(seed, DefaultTransferFunction)
+				testCase.apply(config)
+				config.EnableParallel = true
+				config.MaxWorkers = workers
+
+				parallel, err := OptimizeBinary(config)
+				if err != nil {
+					t.Fatalf("%s seed %d workers %d: parallel OptimizeBinary() error = %v",
+						testCase.name, seed, workers, err)
+				}
+
+				name := fmt.Sprintf("%s/seed=%d/workers=%d", testCase.name, seed, workers)
+				assertResultsIdentical(t, name, sequential, parallel)
+				assertBinaryPositions(t, name, parallel)
+			}
+		}
+	}
+}
+
+// parallelBinaryCases are the binary-run variations worth sweeping: pinned
+// weights, both constraint policies, and early stopping.
+func parallelBinaryCases() []parallelCase {
+	// The constraint is on the bit string itself: the first two bits must be
+	// set, which roughly half the swarm violates at any time, so both branches
+	// of the ranking rules are exercised and the food and enemy change hands.
+	binaryConstraints := func(handling ConstraintHandlingMethod) *ConstraintConfig {
+		return &ConstraintConfig{
+			Handling:      handling,
+			PenaltyMethod: PenaltyQuadratic,
+			PenaltyFactor: 10,
+			Inequalities: []ConstraintFunction{
+				func(x []float64) float64 { return 1 - x[0] },
+				func(x []float64) float64 { return 1 - x[1] },
+			},
+		}
+	}
+
+	return []parallelCase{
+		{name: "binary_default", apply: func(*Config) {}},
+		{name: "binary_pinned_weights", apply: func(config *Config) {
+			config.SeparationWeight = 0.1
+			config.AlignmentWeight = 0.2
+			config.CohesionWeight = 0.3
+			config.FoodWeight = 1.5
+			config.EnemyWeight = 0
+		}},
+		{name: "binary_constrained_feasibility", apply: func(config *Config) {
+			config.Constraints = binaryConstraints(ConstraintHandlingFeasibility)
+		}},
+		{name: "binary_constrained_penalty", apply: func(config *Config) {
+			config.Constraints = binaryConstraints(ConstraintHandlingPenalty)
+		}},
+		{name: "binary_early_stopping", apply: func(config *Config) {
+			config.Convergence = &ConvergenceConfig{
+				MinImprovement:       1,
+				StagnationIterations: 3,
+				MinIterations:        2,
+			}
+		}},
+	}
+}
+
+// TestBinaryParallelCancellationReturnsNoResult pins the cancellation half of
+// the contract for the binary loop: a canceled parallel run reports the error
+// and hands back nothing, so a caller cannot mistake a half-scored population
+// for a finished run.
+func TestBinaryParallelCancellationReturnsNoResult(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	config := binaryParallelTestConfig(11, DefaultTransferFunction)
+	config.EnableParallel = true
+
+	result, err := OptimizeBinaryContext(ctx, config)
+	if err == nil {
+		t.Fatal("OptimizeBinaryContext() error = nil for a canceled context, want context.Canceled")
+	}
+
+	if result != nil {
+		t.Errorf("OptimizeBinaryContext() result = %+v for a canceled context, want nil", result)
+	}
+}

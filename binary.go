@@ -209,6 +209,16 @@ func setupBinaryRun(ctx context.Context, config *Config, options []RunOption) (*
 
 	state := initializeBinaryRun(config, resolved, config.Rand)
 
+	// The pool is built after the starting swarm has been scored, so that
+	// initialization stays a plain sequential pass. Both paths produce the same
+	// costs, the same food, the same enemy and the same evaluation count, so
+	// scoring the first population sequentially costs a parallel run one batch
+	// and keeps initializeBinaryRun free of a context it has nothing else to do
+	// with.
+	if config.EnableParallel {
+		state.pool = newEvaluationPool(state.evaluator, effectiveMaxWorkers(config), config.NPop)
+	}
+
 	return &binaryRun{
 		state:    state,
 		tracker:  newConvergenceTracker(config.Convergence, state.food, state.evaluator),
@@ -298,7 +308,11 @@ func runBinaryLoop(ctx context.Context, config *Config, run *binaryRun) (*Result
 			moveBinaryDragonfly(state, i, weights, run.transfer, run.rng)
 		}
 
-		state.evaluateSwarm()
+		evaluationErr := state.evaluateBinary(ctx)
+		if evaluationErr != nil {
+			return nil, evaluationErr
+		}
+
 		curve = append(curve, state.food.Cost)
 		completed = t + 1
 
@@ -328,6 +342,37 @@ func runBinaryLoop(ctx context.Context, config *Config, run *binaryRun) (*Result
 	logOptimizationCompleted(ctx, run.options.logger, result)
 
 	return result, nil
+}
+
+// evaluateBinary scores the binary swarm and updates the food source and the
+// enemy, through the worker pool when the run is parallel and inline when it is
+// not. It is the binary counterpart of runState.evaluate.
+//
+// The dispatch lives here rather than reusing runState.evaluate so that the
+// binary loop names the variant's own parallel entry point, and so that the two
+// loops stay independently readable. Both paths compute the same thing; the
+// parallel one can be canceled between objective calls and reports that as an
+// error rather than committing a half-scored batch.
+//
+// Every random draw the iteration makes -- weights, step, bit flips -- has
+// already happened on the calling goroutine by the time this is called, which
+// is what keeps a seeded binary run bit-identical with EnableParallel on or
+// off.
+func (state *runState) evaluateBinary(ctx context.Context) error {
+	if state.pool == nil {
+		state.evaluateSwarm()
+
+		return nil
+	}
+
+	count, err := evaluateParallelBinary(ctx, state, state.pool)
+	if err != nil {
+		return err
+	}
+
+	state.funcEvals += count
+
+	return nil
 }
 
 // initializeBinaryRun builds and evaluates the starting swarm.
