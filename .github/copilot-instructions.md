@@ -183,7 +183,7 @@ Regression baselines encode **tolerated degradation factors**, not exact expecte
 
 ## Research Context
 
-Mirjalili, S. (2016). *Dragonfly algorithm: a new meta-heuristic optimization technique for solving single-objective, discrete, and multi-objective problems.* Neural Computing and Applications 27(4), 1053–1073. doi:10.1007/s00521-015-1920-1.
+Mirjalili, S. (2016). _Dragonfly algorithm: a new meta-heuristic optimization technique for solving single-objective, discrete, and multi-objective problems._ Neural Computing and Applications 27(4), 1053–1073. doi:10.1007/s00521-015-1920-1.
 
 Supporting sources: Reynolds (1987) for separation/alignment/cohesion; Mantegna (1994) for the Lévy generator; Deb (2000) for the constraint feasibility rules; Coello Coello et al. (2004) for the hypercube archive MODA borrows.
 

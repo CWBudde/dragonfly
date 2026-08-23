@@ -17,7 +17,7 @@ written to research fidelity against the author's reference MATLAB code (`DA.m`,
 **Current Status**: **No Go source exists yet.** The repository holds only the scaffold —
 `go.mod`, `LICENSE`, `.gitignore`, `justfile`, `.golangci.toml`, `treefmt.toml`, `README.md`,
 `CHANGELOG.md`, `PLAN.md`, and the two GitHub workflows. Everything this document describes
-under *Architecture & Core Concepts* is the **target** design, not the current state.
+under _Architecture & Core Concepts_ is the **target** design, not the current state.
 
 **PLAN.md is the single source of truth for progress.** Before starting work, read PLAN.md
 and check which phase's boxes are ticked; do not infer status from this file.
@@ -184,16 +184,16 @@ if x_j > ub_j { x_j = lb_j ; Δx_j = rand() }
 if x_j < lb_j { x_j = ub_j ; Δx_j = rand() }
 ```
 
-The step component is *reset to a fresh random draw*, not merely clamped — dropping that
+The step component is _reset to a fresh random draw_, not merely clamped — dropping that
 half of the rule changes the exploration behaviour.
 
 `Config.BoundaryMethod` selects the policy:
 
-| Value       | Behaviour                                                        |
-| ----------- | ---------------------------------------------------------------- |
+| Value       | Behaviour                                                          |
+| ----------- | ------------------------------------------------------------------ |
 | `"wrap"`    | Default. Paper behaviour: teleport to the opposite bound, reset Δx |
-| `"clamp"`   | Mayfly's `maxVec`/`minVec` idiom: pin to the violated bound       |
-| `"reflect"` | Mirror the overshoot back into the feasible interval              |
+| `"clamp"`   | Mayfly's `maxVec`/`minVec` idiom: pin to the violated bound        |
+| `"reflect"` | Mirror the overshoot back into the feasible interval               |
 
 Wrapping is genuinely part of DA's exploration, but it interacts badly with some constrained
 problems, which is why the alternatives exist as a named, documented choice.
@@ -239,16 +239,16 @@ x_j <- ¬x_j  if rand < T(Δx_j)   else   x_j
 
 A `TransferFunction` named-string type plus a registry ships the standard families:
 
-| Name | Form                            |
-| ---- | ------------------------------- |
-| `v1` | \|erf(√π/2 · Δx)\|              |
-| `v2` | \|tanh(Δx)\|                    |
-| `v3` | \|Δx / √(Δx²+1)\| _(default)_   |
-| `v4` | \|(2/π)·arctan((π/2)·Δx)\|      |
-| `s1` | 1/(1+e^(-2Δx))                  |
-| `s2` | 1/(1+e^(-Δx))                   |
-| `s3` | 1/(1+e^(-Δx/2))                 |
-| `s4` | 1/(1+e^(-Δx/3))                 |
+| Name | Form                          |
+| ---- | ----------------------------- |
+| `v1` | \|erf(√π/2 · Δx)\|            |
+| `v2` | \|tanh(Δx)\|                  |
+| `v3` | \|Δx / √(Δx²+1)\| _(default)_ |
+| `v4` | \|(2/π)·arctan((π/2)·Δx)\|    |
+| `s1` | 1/(1+e^(-2Δx))                |
+| `s2` | 1/(1+e^(-Δx))                 |
+| `s3` | 1/(1+e^(-Δx/2))               |
+| `s4` | 1/(1+e^(-Δx/3))               |
 
 The objective signature stays `func([]float64) float64` with 0/1-valued input, so the
 benchmark, comparison and constraint machinery is reused unchanged.
@@ -294,8 +294,8 @@ config := dragonfly.NewBinaryConfig()    // BDA with the v3 transfer function
 **The `WeightAuto = -1` sentinel**: every weight-schedule field (`W`, `S`, `A`, `C`, `F`, `E`,
 `Radius`, `StepMax`) defaults to `WeightAuto`, which means "use the schedule from §1.4".
 Setting a field to any other value pins it to a constant for the whole run. This mirrors
-Mayfly's `NCAuto` / `AquilaWeightAuto` convention. Note the consequence: `0` is a *legitimate
-pinned value* (e.g. disabling the enemy term entirely), so code must test against
+Mayfly's `NCAuto` / `AquilaWeightAuto` convention. Note the consequence: `0` is a _legitimate
+pinned value_ (e.g. disabling the enemy term entirely), so code must test against
 `WeightAuto`, never against zero.
 
 `config_loader.go` provides JSON load/save, `ValidateConfig`, named presets and
@@ -386,7 +386,7 @@ Dragonfly/
   regression test can usefully answer is "did this change make the algorithm meaningfully
   worse", which is a statistical question with a tolerance attached. Never replace a baseline
   with an observed number to make a test pass.
-- **Invariant tests.** MODA's non-domination invariant is asserted on *every* archive mutation,
+- **Invariant tests.** MODA's non-domination invariant is asserted on _every_ archive mutation,
   not only at the end of a run — that is where it silently breaks.
 
 ### Coverage
@@ -419,7 +419,7 @@ Dragonfly/
 
 Do not add a per-file complexity exemption to `.golangci.toml` to make a new variant fit.
 Mayfly carries those to grandfather a 1200-line `OptimizeContext`; this repo deliberately
-starts without them. If a function genuinely earns an exemption, add it *and* record the debt
+starts without them. If a function genuinely earns an exemption, add it _and_ record the debt
 in PLAN.md.
 
 ### Extending Benchmark Functions
@@ -454,7 +454,7 @@ Rules:
   `goconst.ignore-string-values` in `.golangci.toml` (Sphere, Rastrigin, Rosenbrock, Ackley,
   Griewank and Schwefel are already listed).
 
-`mnd` and `varnamelen` are disabled: numeric literals *are* the algorithm, and short math
+`mnd` and `varnamelen` are disabled: numeric literals _are_ the algorithm, and short math
 identifiers (`x`, `w`, `r`, `s`, `a`, `c`, `f`, `e`) mirror the papers. Use them.
 
 ### Maximization Problems
@@ -485,10 +485,10 @@ and records the seed in `Result.Seed`. That makes any run reproducible after the
 
 **Explicit threading.** Every stochastic helper takes `rng *rand.Rand` as its last parameter.
 No package-level `rand.Float64()`, no hidden `math/rand` global. (`gosec`'s G404 is excluded
-precisely because `math/rand` is the point here — but that excludes the *weak-randomness*
+precisely because `math/rand` is the point here — but that excludes the _weak-randomness_
 warning, not the discipline.)
 
-**The parallelism rule.** *All* RNG draws happen on the calling goroutine during the
+**The parallelism rule.** _All_ RNG draws happen on the calling goroutine during the
 `prepare*` phase. Worker goroutines only evaluate the objective function — they never draw a
 random number, and they never mutate shared swarm state. A seeded run must produce
 **bit-identical** results with `EnableParallel` on or off, and
@@ -502,7 +502,7 @@ set depend on the whole swarm, so the prepare phase is **two sequential passes**
 
 Both passes touch the RNG and stay on the calling goroutine. Only the objective evaluation of
 the resulting positions fans out. The neighbour scan itself is `O(n²·d)` and is the real hot
-spot for large swarms; it can be parallelised safely *precisely because* it draws no random
+spot for large swarms; it can be parallelised safely _precisely because_ it draws no random
 numbers, and `BenchmarkNeighbourScan` exists to prove that is worth doing before the
 complexity is added.
 
@@ -526,7 +526,7 @@ synchronously on the caller's goroutine — they must not become an RNG or order
    deterministic test suite flaky in a way that is very hard to bisect.
 
 4. **DA wraps at the boundary by default; it does not clamp.** A dragonfly that leaves the box
-   teleports to the opposite bound *and* has its step component reset to a fresh random draw.
+   teleports to the opposite bound _and_ has its step component reset to a fresh random draw.
    Users arriving from PSO, GA or Mayfly expect clamping and will read wrapping as a bug —
    and code ported from Mayfly will silently apply `maxVec`/`minVec` instead. Route every
    boundary fix through `Config.BoundaryMethod`, and remember the Δx reset is half the rule.

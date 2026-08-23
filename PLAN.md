@@ -7,7 +7,7 @@ Status: **Phase 1 in progress** — scaffold laid, no algorithm code yet.
 This document is the roadmap. It is organised the same way as the sibling
 [Mayfly](https://github.com/cwbudde/mayfly) project's `PLAN.md`: numbered phases,
 `- [ ]` / `- [x]` task checkboxes, and a bolded `**Rationale**:` paragraph after each
-subsection explaining *why* the task exists. Update the checkboxes as work lands.
+subsection explaining _why_ the task exists. Update the checkboxes as work lands.
 
 ---
 
@@ -16,11 +16,11 @@ subsection explaining *why* the task exists. Update the checkboxes as work lands
 A dependency-free Go implementation of Seyedali Mirjalili's **Dragonfly Algorithm (DA)**,
 covering all three variants from the original paper:
 
-| Variant  | Problem class                      | Entry point                |
-| -------- | ---------------------------------- | -------------------------- |
-| **DA**   | Single-objective, continuous       | `Optimize` / `OptimizeContext` |
+| Variant  | Problem class                       | Entry point                                |
+| -------- | ----------------------------------- | ------------------------------------------ |
+| **DA**   | Single-objective, continuous        | `Optimize` / `OptimizeContext`             |
 | **BDA**  | Single-objective, binary / discrete | `OptimizeContext` with a transfer function |
-| **MODA** | Multi-objective, continuous        | `OptimizeMultiObjective`   |
+| **MODA** | Multi-objective, continuous         | `OptimizeMultiObjective`                   |
 
 ### Design principles (inherited from Mayfly — do not diverge without a note here)
 
@@ -52,9 +52,9 @@ the conventions.
 
 ## 1. The algorithm — specification to implement against
 
-Primary source: Mirjalili, S. (2016). *"Dragonfly algorithm: a new meta-heuristic
+Primary source: Mirjalili, S. (2016). _"Dragonfly algorithm: a new meta-heuristic
 optimization technique for solving single-objective, discrete, and multi-objective
-problems."* **Neural Computing and Applications** 27(4), 1053–1073.
+problems."_ **Neural Computing and Applications** 27(4), 1053–1073.
 DOI: [10.1007/s00521-015-1920-1](https://doi.org/10.1007/s00521-015-1920-1).
 Reference implementations: the author's `DA.m`, `BDA.m`, `MODA.m`.
 
@@ -161,16 +161,16 @@ x_j ← ¬x_j  if rand < T(Δx_j)   else   x_j
 
 Ship a `TransferFunction` named-string type with the standard families and a registry:
 
-| Name | Form                                     |
-| ---- | ---------------------------------------- |
-| `v1` | \|erf(√π/2 · Δx)\|                       |
-| `v2` | \|tanh(Δx)\|                             |
-| `v3` | \|Δx / √(Δx²+1)\|  *(paper default)*     |
-| `v4` | \|(2/π)·arctan((π/2)·Δx)\|               |
-| `s1` | 1/(1+e^(-2Δx))                           |
-| `s2` | 1/(1+e^(-Δx))                            |
-| `s3` | 1/(1+e^(-Δx/2))                          |
-| `s4` | 1/(1+e^(-Δx/3))                          |
+| Name | Form                                |
+| ---- | ----------------------------------- |
+| `v1` | \|erf(√π/2 · Δx)\|                  |
+| `v2` | \|tanh(Δx)\|                        |
+| `v3` | \|Δx / √(Δx²+1)\| _(paper default)_ |
+| `v4` | \|(2/π)·arctan((π/2)·Δx)\|          |
+| `s1` | 1/(1+e^(-2Δx))                      |
+| `s2` | 1/(1+e^(-Δx))                       |
+| `s3` | 1/(1+e^(-Δx/2))                     |
+| `s4` | 1/(1+e^(-Δx/3))                     |
 
 The objective signature stays `func([]float64) float64` with 0/1-valued input so the
 benchmark, comparison, and constraint machinery is reused unchanged.
@@ -182,8 +182,8 @@ benchmark, comparison, and constraint machinery is reused unchanged.
   `UpdateFromPopulation`. Port and extend; do not rewrite.
 - Add the **hypercube grid** MODA needs on top of the archive: partition objective space
   into `NGrid` hypercubes per objective, then
-  - **food** = roulette draw from the *least* populated occupied hypercube, weight `1/N^β`
-  - **enemy** = roulette draw from the *most* populated hypercube, weight `N^γ`
+  - **food** = roulette draw from the _least_ populated occupied hypercube, weight `1/N^β`
+  - **enemy** = roulette draw from the _most_ populated hypercube, weight `N^γ`
   - **archive overflow** = delete from the most crowded hypercube, weight `N^δ`
 - Proposed defaults `β = 4, γ = 2, δ = 2, NGrid = 10, ArchiveSize = 100`.
   **Verify every one of these against `MODA.m` before locking them in** — they are
@@ -265,7 +265,7 @@ Dragonfly/
 - [x] `justfile` — Mayfly's recipes minus the wasm ones
 - [x] `go.mod` — `module github.com/MeKo-Christian/dragonfly`, `go 1.23.3`
 
-**Rationale**: Getting the linter and formatter contract in place *before* the first line
+**Rationale**: Getting the linter and formatter contract in place _before_ the first line
 of algorithm code means the house style is enforced from commit one, rather than being
 retrofitted across thirty files later. Dropping Mayfly's complexity exemptions is
 deliberate: they exist there to grandfather a 1200-line `OptimizeContext`, and inheriting
@@ -352,7 +352,7 @@ and every neighbour set depend on the whole swarm, so the prepare phase is two p
 first compute `r`, the weights, food and enemy; then, per dragonfly, scan for neighbours
 and build ΔX. Both passes touch the RNG and stay sequential; only the objective evaluation
 of the resulting positions fans out. Separately, the neighbour scan is O(n²·d) and is the
-actual hot spot for large swarms — it can be parallelised safely precisely *because* it
+actual hot spot for large swarms — it can be parallelised safely precisely _because_ it
 draws no random numbers, and `BenchmarkNeighbourScan` exists to prove that is worth doing
 before the complexity is added.
 
@@ -424,7 +424,7 @@ version, but it is what makes the two libraries comparable head-to-head — the 
 - [x] `example_test.go` — `ExampleOptimize`, `ExampleOptimizeContext`, `ExampleNewBuilder`
 - [x] `go.mod`: add `github.com/cucumber/godog`
 
-**Rationale**: Baselines encode *tolerated degradation factors*, not exact expected values.
+**Rationale**: Baselines encode _tolerated degradation factors_, not exact expected values.
 A stochastic optimizer's output is not a golden file; the question a regression test can
 usefully answer is "did this change make the algorithm meaningfully worse", and that is a
 statistical question with a tolerance attached.
@@ -433,20 +433,20 @@ statistical question with a tolerance attached.
 
 ## Phase 9: Documentation
 
-- [ ] `README.md` in full: Overview → Quick Start → Algorithm Variants table → Intelligent
+- [x] `README.md` in full: Overview → Quick Start → Algorithm Variants table → Intelligent
       Selection → Statistical Comparison → Benchmark Functions → Documentation index →
       Running Examples → Build Commands → Research & Citations (with an Algorithm
       Implementation Map: File | Algorithm/Operator | Reference) → Performance → Development
       Status → Contributing → License
-- [ ] `docs/README.md` — documentation hub with a navigation guide
-- [ ] `docs/algorithms/{standard-da,bda,moda}.md` on Mayfly's fixed skeleton
+- [x] `docs/README.md` — documentation hub with a navigation guide
+- [x] `docs/algorithms/{standard-da,bda,moda}.md` on Mayfly's fixed skeleton
       (Research Reference → Overview → Key Innovations → Usage Examples → Parameters →
       Benefits → Performance → When to Use → Parameter Tuning Guide → vs Other Variants →
       Related Documentation)
-- [ ] `docs/api/{quick-reference,configuration,run-lifecycle,comparison-framework}.md`
-- [ ] `docs/benchmarks.md`, `docs/research.md` (with BibTeX), `docs/performance.md`,
+- [x] `docs/api/{quick-reference,configuration,run-lifecycle,comparison-framework}.md`
+- [x] `docs/benchmarks.md`, `docs/research.md` (with BibTeX), `docs/performance.md`,
       `docs/releasing.md`
-- [ ] `examples/` — each subdirectory its own module with a `replace` directive
+- [x] `examples/` — each subdirectory its own module with a `replace` directive
 
 ---
 
@@ -461,6 +461,23 @@ statistical question with a tolerance attached.
 ---
 
 ## Deferred — recorded so the roadmap stays honest
+
+### Found while documenting (2026-08-23)
+
+- [ ] `EnemyCutoffFraction` is dead at its default. `e = mc`, and `mc` already reaches
+      zero at `t = T/2`, so the `0.75·T` cutoff can never fire -- only a fraction below
+      `0.5` changes behaviour. This matches the paper (both rules are in `DA.m`), so it is
+      not a defect, but the field advertises a control it does not have at its default.
+      Decide whether to document it as inert or drop it.
+- [ ] MODA recovers the ZDT fronts only at low dimensionality. At the ZDT suite's original
+      30 dimensions (NPop 100, 1000 iterations) the archive is non-dominated but its lowest
+      `f2` is 1.39, well off the true front. The Phase 6 gate is met at the tests' `d = 5`
+      (median distance to front 0.000). Worth understanding before claiming MODA parity
+      with the paper's results.
+- [ ] MODA honours neither `EnableParallel` nor `Config.Constraints` nor early stopping.
+      All three are wired for DA and BDA only.
+- [ ] `SchafferN1` costs 6-10x the ZDT benchmarks despite a trivial 1-D objective -- that
+      is archive maintenance at capacity, not search. Relevant to any `ArchiveSize` tuning.
 
 ### Inherited benchmark defects (shared with Mayfly)
 
@@ -492,16 +509,16 @@ not a mistranscription of `π/4`), and `ExpandedSchafferF6`'s wrap-around pair
 
 - Mirjalili, S. (2016). Dragonfly algorithm: a new meta-heuristic optimization technique
   for solving single-objective, discrete, and multi-objective problems.
-  *Neural Computing and Applications*, 27(4), 1053–1073.
+  _Neural Computing and Applications_, 27(4), 1053–1073.
   doi:[10.1007/s00521-015-1920-1](https://doi.org/10.1007/s00521-015-1920-1)
 - Reynolds, C. W. (1987). Flocks, herds and schools: A distributed behavioral model.
-  *ACM SIGGRAPH Computer Graphics*, 21(4), 25–34. — the origin of separation, alignment
+  _ACM SIGGRAPH Computer Graphics_, 21(4), 25–34. — the origin of separation, alignment
   and cohesion.
 - Mantegna, R. N. (1994). Fast, accurate algorithm for numerical simulation of Lévy stable
-  stochastic processes. *Physical Review E*, 49(5), 4677–4683.
+  stochastic processes. _Physical Review E_, 49(5), 4677–4683.
 - Deb, K. (2000). An efficient constraint handling method for genetic algorithms.
-  *Computer Methods in Applied Mechanics and Engineering*, 186(2–4), 311–338.
+  _Computer Methods in Applied Mechanics and Engineering_, 186(2–4), 311–338.
   — the feasibility rules used in `constraints.go`.
 - Coello Coello, C. A., Pulido, G. T., & Lechuga, M. S. (2004). Handling multiple objectives
-  with particle swarm optimization. *IEEE Transactions on Evolutionary Computation*, 8(3),
+  with particle swarm optimization. _IEEE Transactions on Evolutionary Computation_, 8(3),
   256–279. — the hypercube archive MODA borrows.
