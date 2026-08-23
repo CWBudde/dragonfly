@@ -17,6 +17,9 @@ import (
 // the page until the user reloads. Returning the failure as data costs one
 // deferred recover per call and keeps a mistyped option from taking the demo
 // down with it.
+//
+// The named return is forced rather than chosen: a deferred function can only
+// substitute a return value through one.
 func guard(name string, fn func(js.Value) any) js.Func {
 	return js.FuncOf(func(_ js.Value, args []js.Value) (result any) {
 		defer func() {

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shootout · Dragonfly</title>
+    <meta
+      name="description"
+      content="Which of DA's configurable choices actually matter, measured with paired seeds, Wilcoxon signed-rank tests and a Friedman test."
+    />
+    <link rel="icon" href="favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+
+    <!--
+      DOM CONTRACT — read this before touching bench.js.
+
+      Ids bench.js binds to:
+        #status           status readout; data-state="ready|error|loading"
+        #chart            grouped bar chart, drawn by bench-chart.js
+        #contenders       checkbox list, filled from info()
+        #benchmarks       checkbox list, filled from info()
+        #dimensions #iterations #runs #seed   <input type=number>
+        #start #stop      buttons
+        #progress         <progress>
+        #progressNote     "n of m benchmarks"
+        #statsTable       <tbody> for the per-benchmark statistics
+        #wilcoxonTable    <tbody> for the pairwise tests
+        #friedman         <p> for the Friedman result
+        #budget           estimated run count, updated as the form changes
+
+      Note: this page does NOT load wasm_exec.js on the main thread. The wasm
+      instance lives in bench-worker.js.
+    -->
+  </head>
+  <body>
+    <header class="masthead">
+      <h1 class="wordmark">
+        <img class="glyph" src="favicon.svg" alt="" />
+        Dragonfly
+        <span class="sub">shootout</span>
+      </h1>
+      <nav>
+        <a href="index.html">Swarm Lab</a>
+        <a href="pareto.html">Pareto</a>
+        <a href="binary.html">Binary</a>
+        <a href="benchmark.html" aria-current="page">Shootout</a>
+        <a href="https://github.com/CWBudde/dragonfly">Source</a>
+      </nav>
+    </header>
+
+    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
+
+    <p class="lede">
+      This page does not compare algorithms. The library ships two
+      single-objective variants, and BDA searches <code>{0,1}ᵈ</code>, so putting
+      it beside DA on Rastrigin would compare two different problems and call
+      the result a ranking. What is worth measuring is the choices
+      <strong>DA itself leaves open</strong> — the boundary rule, the Lévy walk,
+      the enemy term — each run against the paper's defaults on identical seeds,
+      then tested for significance rather than eyeballed.
+    </p>
+
+    <div class="instrument">
+      <section class="stage-wrap">
+        <section class="panel">
+          <h2>Mean cost by benchmark</h2>
+          <div class="panel-body">
+            <canvas id="chart" width="900" height="420" style="aspect-ratio: 16 / 8"></canvas>
+            <ul class="legend" id="chartLegend"></ul>
+          </div>
+        </section>
+
+        <section class="panel" style="margin-top: var(--gap)">
+          <h2>Statistics</h2>
+          <div class="panel-body table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Benchmark</th>
+                  <th>Contender</th>
+                  <th>Rank</th>
+                  <th>Mean</th>
+                  <th>Median</th>
+                  <th>Std dev</th>
+                  <th>Best</th>
+                  <th>Success</th>
+                </tr>
+              </thead>
+              <tbody id="statsTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" style="margin-top: var(--gap)">
+          <h2>Pairwise Wilcoxon, last benchmark</h2>
+          <div class="panel-body">
+            <p class="note" id="friedman"></p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>A</th>
+                    <th>B</th>
+                    <th>Winner</th>
+                    <th>W</th>
+                    <th>p</th>
+                  </tr>
+                </thead>
+                <tbody id="wilcoxonTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <div>
+        <section class="panel">
+          <h2>Contenders</h2>
+          <div class="panel-body" id="contenders"></div>
+        </section>
+
+        <section class="panel" style="margin-top: var(--gap)">
+          <h2>Benchmarks</h2>
+          <div class="panel-body" id="benchmarks"></div>
+        </section>
+
+        <section class="panel" style="margin-top: var(--gap)">
+          <h2>Budget</h2>
+          <div class="panel-body">
+            <div class="field field-pair">
+              <div class="field">
+                <label for="dimensions">Dimensions</label>
+                <input type="number" id="dimensions" min="2" value="10" />
+              </div>
+              <div class="field">
+                <label for="runs">Runs each</label>
+                <input type="number" id="runs" min="2" value="10" />
+              </div>
+            </div>
+            <div class="field field-pair">
+              <div class="field">
+                <label for="iterations">Iterations</label>
+                <input type="number" id="iterations" min="1" value="200" />
+              </div>
+              <div class="field">
+                <label for="seed">Base seed</label>
+                <input type="number" id="seed" value="42" />
+              </div>
+            </div>
+            <p class="note" id="budget"></p>
+            <div class="button-row" style="margin-bottom: 0.5rem">
+              <button type="button" class="primary" id="start">Run sweep</button>
+            </div>
+            <div class="button-row">
+              <button type="button" id="stop" disabled>Stop</button>
+            </div>
+            <progress id="progress" value="0" max="1" style="width: 100%; margin-top: 0.7rem"></progress>
+            <p class="note" id="progressNote"></p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <aside class="caveat">
+      <h2>Reading the numbers</h2>
+      <p>
+        <strong>The seeds are paired.</strong> Run <em>k</em> of every contender
+        uses the same seed, so they face identical starting swarms and identical
+        random streams and the differences that remain are the configurations'.
+        That pairing is what makes the Wilcoxon signed-rank test the right test,
+        and what makes it far more sensitive than an unpaired alternative at
+        these run counts.
+      </p>
+      <p>
+        <strong>The p-values are approximate below about ten non-tied pairs.</strong>
+        They come from the normal approximation to W, and an exact table is
+        needed in that range. The library reports the approximation anyway
+        rather than withholding it, because it is the number a reader can check.
+        Raise <em>Runs each</em> before drawing a conclusion from a marginal p.
+      </p>
+      <p>
+        <strong>“Double the swarm” is a control, not a contender.</strong> It
+        spends twice the evaluations on the same iteration budget, so beating the
+        others is the expected outcome and not evidence about anything. It is
+        included so the rest of the table has a sense of scale.
+      </p>
+      <p>
+        Timings under <code>js/wasm</code> are single-threaded and without SIMD.
+        Treat them as relative costs within this page, never as a measure of the
+        library's speed.
+      </p>
+    </aside>
+
+    <footer class="page">
+      <span>Paired seeds · Wilcoxon signed-rank · Friedman</span>
+      <span id="buildInfo"></span>
+    </footer>
+
+    <script src="boot.js"></script>
+    <script src="render.js"></script>
+    <script src="bench-chart.js"></script>
+    <script src="bench.js"></script>
+  </body>
+</html>

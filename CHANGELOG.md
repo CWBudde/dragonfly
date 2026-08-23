@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A WebAssembly browser demo in `examples/wasm-demo`, published to GitHub Pages by
+  `.github/workflows/wasm-demo-pages.yml` and built by `scripts/build-wasm-demo.sh`. Four
+  pages — a Swarm Lab that colours each dragonfly by which branch of the two-branch step
+  update it is about to take and draws the neighbourhood as the per-dimension box it is, a
+  Pareto page that animates MODA's archive over its hypercube grid, a Binary page pairing
+  BDA's bit matrix with the transfer function's own curve, and a Shootout that runs
+  `ComparisonRunner` over DA's configurable choices. No optimization logic lives in the
+  JavaScript: every number is computed by the library compiled to `js/wasm`. New justfile
+  recipes `build-wasm-demo`, `run-wasm-demo` and `check-wasm-demo`.
+
+- `OptimizeMultiObjective` now accepts `...RunOption`, and a new `WithArchiveObserver`
+  reports an `ArchiveSnapshot` — deep copies of the archive, its per-objective grid extent
+  and `NGrid` — once per completed iteration, at the same point in the loop where
+  `WithPopulationObserver` fires for a single-objective run. Before this no caller could
+  watch a multi-objective run at all; only the final archive and its size per iteration were
+  observable. `WithInitialPopulation` now works on multi-objective runs too, seeding the
+  leading slots without shifting the random stream. The signature change is variadic, so
+  existing call sites compile unchanged.
+
+- `ParetoArchive.GridBounds()` returns the archive's per-objective extent — the frame every
+  solution's `GridIndex` is expressed in. Both slices are copies, because the archive
+  rewrites its bounds through the existing backing arrays on every mutation.
+
+- `NeighborhoodRadius` and `WithinRadius` are now exported. They are the radius schedule and
+  the neighbour test the optimizer itself uses, so a caller reconstructing a neighbourhood
+  from a `PopulationSnapshot` can ask the library rather than reimplement the rule — and a
+  Euclidean reading of that per-dimension box test is the most common way to get this
+  algorithm subtly wrong.
+
+- Run options with no meaning for a problem class are now rejected rather than silently
+  ignored, the rule `validateMultiObjectiveConfig` already applied to `Convergence.TargetCost`
+  and `ConstraintHandlingPenalty`. `OptimizeMultiObjective` rejects `WithProgressObserver`,
+  `WithPopulationObserver` and `WithLogger` — a Pareto front has no incumbent for any of them
+  to report; `OptimizeContext` and `OptimizeBinaryContext` reject `WithArchiveObserver`. A nil
+  observer registers nothing and is never rejected.
+
 - MODA now honours the shared `Config` block. `Config.Constraints` reaches the archive
   through `constrainedDominates`, which lifts Deb's feasibility rules from the total order
   in `constraints.go` to the partial order a Pareto archive needs; `ParetoSolution` carries

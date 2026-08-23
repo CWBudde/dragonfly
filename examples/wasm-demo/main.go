@@ -18,6 +18,9 @@ var exports = map[string]func(js.Value) any{
 	"info":      jsInfo,
 	"run":       jsRun,
 	"landscape": jsLandscape,
+	"pareto":    jsPareto,
+	"binary":    jsBinary,
+	"compare":   jsCompare,
 }
 
 // live keeps the js.Func values referenced so they are never released.

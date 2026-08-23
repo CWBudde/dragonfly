@@ -307,20 +307,6 @@ func (pa *ParetoArchive) Len() int {
 	return len(pa.Solutions)
 }
 
-// Add offers a solution to the archive and reports whether it was accepted.
-//
-// The candidate is rejected when an archived solution dominates it or already
-// occupies its exact objective vector; otherwise every solution the candidate
-// dominates is removed and the candidate is appended. An insert that overflows
-// MaxSize evicts one member of the most crowded hypercube, chosen by a roulette
-// draw weighted N^Delta, so the archive never exceeds its capacity.
-//
-// The archive stores a deep copy, so the caller may reuse the candidate.
-//
-// rng is the last parameter by the package convention and is used only for the
-// overflow eviction. A nil rng makes that eviction deterministic (the first
-// member of the most crowded cell), which keeps the archive usable outside a
-// seeded run.
 // GridBounds returns the per-objective extent of the archive's contents -- the
 // lower bounds first, then the upper -- which is also the extent of the
 // hypercube grid: bin b of objective m spans one NGrid-th of
@@ -341,6 +327,20 @@ func (pa *ParetoArchive) GridBounds() ([]float64, []float64) {
 	return copyVec(pa.lowerBounds), copyVec(pa.upperBounds)
 }
 
+// Add offers a solution to the archive and reports whether it was accepted.
+//
+// The candidate is rejected when an archived solution dominates it or already
+// occupies its exact objective vector; otherwise every solution the candidate
+// dominates is removed and the candidate is appended. An insert that overflows
+// MaxSize evicts one member of the most crowded hypercube, chosen by a roulette
+// draw weighted N^Delta, so the archive never exceeds its capacity.
+//
+// The archive stores a deep copy, so the caller may reuse the candidate.
+//
+// rng is the last parameter by the package convention and is used only for the
+// overflow eviction. A nil rng makes that eviction deterministic (the first
+// member of the most crowded cell), which keeps the archive usable outside a
+// seeded run.
 func (pa *ParetoArchive) Add(solution *ParetoSolution, rng *rand.Rand) bool {
 	if pa == nil || solution == nil || len(solution.ObjectiveValues) == 0 {
 		return false

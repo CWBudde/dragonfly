@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pareto Front · Dragonfly</title>
+    <meta
+      name="description"
+      content="MODA's Pareto archive filling in, iteration by iteration, with the hypercube grid its food and enemy draws turn on."
+    />
+    <link rel="icon" href="favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+
+    <!--
+      DOM CONTRACT — read this before touching pareto.js.
+
+      Ids pareto.js binds to:
+        #status           status readout; data-state="ready|error|loading"
+        #stage            objective-space scatter + hypercube grid
+        #archiveCurve     archive size per iteration
+        #cellHistogram    occupancy of the occupied hypercubes, this frame
+
+        #benchmark        <select> of multi-objective functions (from info())
+        #dimensions #npop #iterations #archiveSize #nGrid #seed  <input number>
+        #run #rerun #newSeed  buttons
+
+        #play #scrub #speed #frameReadout   the transport, as on index.html
+        #benchNote        blurb for the selected function
+
+      Telemetry values:
+        #tArchive #tFinal #tEvals #tIterations #tTermination #tSeed
+        #tCells #tCrowd
+    -->
+  </head>
+  <body>
+    <header class="masthead">
+      <h1 class="wordmark">
+        <img class="glyph" src="favicon.svg" alt="" />
+        Dragonfly
+        <span class="sub">pareto front</span>
+      </h1>
+      <nav>
+        <a href="index.html">Swarm Lab</a>
+        <a href="pareto.html" aria-current="page">Pareto</a>
+        <a href="binary.html">Binary</a>
+        <a href="benchmark.html">Shootout</a>
+        <a href="https://github.com/CWBudde/dragonfly">Source</a>
+      </nav>
+    </header>
+
+    <p class="status" id="status" data-state="loading">Loading WebAssembly…</p>
+
+    <p class="lede">
+      A multi-objective run has no single best answer, so it has nothing to
+      converge <em>to</em> — it has a front to spread out along. MODA keeps that
+      front in a bounded archive and partitions objective space into
+      <strong>hypercubes</strong>: the food source is drawn from the least
+      populated occupied cell, the enemy and every overflow eviction from the
+      most populated one. That is the entire mechanism that stops the archive
+      collapsing onto one point, and it is what the shading below shows.
+    </p>
+
+    <div class="instrument">
+      <section class="stage-wrap">
+        <canvas id="stage" width="900" height="900"></canvas>
+
+        <div class="transport">
+          <button type="button" class="icon" id="play" aria-pressed="false">
+            Play
+          </button>
+          <input
+            type="range"
+            id="scrub"
+            min="0"
+            max="0"
+            value="0"
+            aria-label="Iteration"
+          />
+          <select id="speed" aria-label="Replay speed" style="width: auto">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+          <span class="frame-readout" id="frameReadout">—</span>
+        </div>
+
+        <ul class="legend">
+          <li><span class="key" style="background: var(--swarm)"></span>archive member</li>
+          <li><span class="key" style="background: var(--food)"></span>sparse cell — food is drawn here</li>
+          <li><span class="key" style="background: var(--enemy)"></span>crowded cell — enemy and evictions</li>
+        </ul>
+      </section>
+
+      <div>
+        <section class="panel">
+          <h2>Problem</h2>
+          <div class="panel-body">
+            <div class="field">
+              <label for="benchmark">Objectives</label>
+              <select id="benchmark"></select>
+              <p class="note" id="benchNote"></p>
+            </div>
+            <div class="field field-pair">
+              <div class="field">
+                <label for="dimensions">Dimensions</label>
+                <input type="number" id="dimensions" min="1" value="10" />
+              </div>
+              <div class="field">
+                <label for="npop">Dragonflies</label>
+                <input type="number" id="npop" min="2" value="50" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="iterations">Iterations</label>
+              <input type="number" id="iterations" min="1" value="100" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" style="margin-top: var(--gap)">
+          <h2>Archive</h2>
+          <div class="panel-body">
+            <div class="field field-pair">
+              <div class="field">
+                <label for="archiveSize">Capacity</label>
+                <input type="number" id="archiveSize" min="2" value="100" />
+              </div>
+              <div class="field">
+                <label for="nGrid">Grid per axis</label>
+                <input type="number" id="nGrid" min="2" value="10" />
+              </div>
+            </div>
+            <p class="note">
+              Shrink the capacity to watch eviction bite: once the archive is
+              full, an accepted candidate costs a member of the most crowded
+              hypercube.
+            </p>
+          </div>
+        </section>
+
+        <section class="panel" style="margin-top: var(--gap)">
+          <h2>Run</h2>
+          <div class="panel-body">
+            <div class="field">
+              <label for="seed">Seed</label>
+              <input type="number" id="seed" value="42" />
+            </div>
+            <div class="button-row" style="margin-bottom: 0.5rem">
+              <button type="button" class="primary" id="run">Run</button>
+            </div>
+            <div class="button-row">
+              <button type="button" id="rerun">Same seed</button>
+              <button type="button" id="newSeed">New seed</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <dl class="telemetry">
+      <div><dt>Archive now</dt><dd id="tArchive">—</dd></div>
+      <div><dt>Archive final</dt><dd id="tFinal">—</dd></div>
+      <div><dt>Occupied cells</dt><dd id="tCells">—</dd></div>
+      <div><dt>Most crowded</dt><dd id="tCrowd">—</dd></div>
+      <div><dt>Evaluations</dt><dd id="tEvals">—</dd></div>
+      <div><dt>Iterations</dt><dd id="tIterations">—</dd></div>
+      <div><dt>Stopped by</dt><dd id="tTermination">—</dd></div>
+      <div><dt>Seed</dt><dd id="tSeed">—</dd></div>
+    </dl>
+
+    <div class="plots">
+      <section class="panel">
+        <h3>Archive size</h3>
+        <div class="panel-body">
+          <canvas id="archiveCurve" width="640" height="360"></canvas>
+        </div>
+      </section>
+      <section class="panel">
+        <h3>Cell occupancy, this frame</h3>
+        <div class="panel-body">
+          <canvas id="cellHistogram" width="640" height="360"></canvas>
+        </div>
+      </section>
+    </div>
+
+    <aside class="caveat">
+      <h2>How to read this</h2>
+      <p>
+        The axes are the two objectives, not the decision variables. A point is
+        one archive member; down and to the left is better in both. A healthy
+        run spreads points evenly along the front rather than piling them into
+        one corner, which is exactly what the sparse-cell food draw is for.
+      </p>
+      <p>
+        <strong>ZDT3 is the one to watch.</strong> Its true front is broken into
+        five disconnected pieces, so it is where a method that quietly favours
+        one region of objective space shows it.
+      </p>
+      <p>
+        The grid is drawn from the archive's own extent, read through
+        <code>ParetoArchive.GridBounds()</code>, and each point's cell comes
+        from the <code>GridIndex</code> the archive assigned. Nothing here
+        re-derives which cell a point falls in. The archive's roulette exponents
+        (β, γ, δ) are recalled from the MOPSO lineage the paper borrows from
+        rather than read off the author's <code>MODA.m</code>, and the library
+        documents them as unverified; treat the defaults as defaults.
+      </p>
+    </aside>
+
+    <footer class="page">
+      <span>Coello Coello, Pulido &amp; Lechuga (2004) — the hypercube archive MODA borrows</span>
+      <span id="buildInfo"></span>
+    </footer>
+
+    <script src="wasm_exec.js"></script>
+    <script src="boot.js"></script>
+    <script src="render.js"></script>
+    <script src="pareto.js"></script>
+  </body>
+</html>

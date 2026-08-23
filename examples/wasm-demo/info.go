@@ -26,6 +26,8 @@ func jsInfo(_ js.Value) any {
 		"benchmarks": infoBenchmarks(),
 		"multi":      infoMultiBenchmarks(),
 		"transfers":  infoTransfers(),
+		"problems":   infoBinaryProblems(),
+		"contenders": infoContenders(),
 		"boundaries": infoBoundaries(),
 
 		"maxDimensions":  maxDimensions,
@@ -140,7 +142,7 @@ func infoBoundaries() []any {
 	return []any{
 		map[string]any{
 			"key": string(dragonfly.BoundaryWrap), "default": true,
-			"description": "Teleport to the opposite bound and reset that step component to a fresh random draw. The paper's behaviour.",
+			"description": "Teleport to the opposite bound and reset that step component to a fresh random draw. The paper's behavior.",
 		},
 		map[string]any{
 			"key": string(dragonfly.BoundaryClamp), "default": false,
@@ -151,4 +153,39 @@ func infoBoundaries() []any {
 			"description": "Mirror the overshoot back into the feasible interval.",
 		},
 	}
+}
+
+// infoBinaryProblems lists the binary page's objectives. Unlike the continuous
+// benchmarks these are the demo's own -- the library's suite is defined over
+// real vectors -- so the table lives in binary.go and is merely reported here.
+func infoBinaryProblems() []any {
+	names := binaryProblemNames()
+	list := make([]any, 0, len(names))
+
+	for _, name := range names {
+		problem := binaryProblems[name]
+		list = append(list, map[string]any{
+			"name":  problem.name,
+			"blurb": problem.blurb,
+		})
+	}
+
+	return list
+}
+
+// infoContenders lists the shootout's configurations. See compare.go for why
+// the shootout compares configurations rather than the library's two
+// single-objective variants.
+func infoContenders() []any {
+	list := make([]any, 0, len(contenders))
+
+	for _, entry := range contenders {
+		list = append(list, map[string]any{
+			"key":         entry.key,
+			"label":       entry.label,
+			"description": entry.description,
+		})
+	}
+
+	return list
 }

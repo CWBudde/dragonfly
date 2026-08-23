@@ -53,9 +53,12 @@ func uniformOptimum(coordinate float64) func(int) ([]float64, bool) {
 	}
 }
 
-// knownValue describes a function whose minimum is the same in every dimension.
-func knownValue(value float64) func(int) (float64, bool) {
-	return func(int) (float64, bool) { return value, true }
+// zeroMinimum describes a function whose minimum is zero in every dimension,
+// which is all of them here except Michalewicz. It is not parameterized on the
+// value: every caller passes zero, and a parameter nothing varies reads as a
+// generality this table does not have.
+func zeroMinimum() func(int) (float64, bool) {
+	return func(int) (float64, bool) { return 0, true }
 }
 
 // dixonPriceOptimum is minimized at x_i = 2^(-(2^i - 2) / 2^i) for one-based i,
@@ -98,42 +101,42 @@ func michalewiczOptimumAt(dimensions int) ([]float64, bool) {
 var benchmarks = map[string]benchmark{
 	"Sphere": {
 		fn: dragonfly.Sphere, name: "Sphere", lower: -10, upper: 10,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "The smooth bowl. One minimum, no structure to get lost in — a sanity check, not a challenge.",
 	},
 	"Rastrigin": {
 		fn: dragonfly.Rastrigin, name: "Rastrigin", lower: -5.12, upper: 5.12,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "A cosine egg carton over a bowl. Local minima everywhere; the classic test of whether a swarm escapes them.",
 	},
 	"Rosenbrock": {
 		fn: dragonfly.Rosenbrock, name: "Rosenbrock", lower: -5, upper: 10,
-		optimumAt: uniformOptimum(1), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(1), optimumValue: zeroMinimum(),
 		blurb: "The banana valley. Finding the valley is easy; following its curved floor to (1,1) is not.",
 	},
 	"Ackley": {
 		fn: dragonfly.Ackley, name: "Ackley", lower: -32.768, upper: 32.768,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "A near-flat plain with a narrow central funnel. Punishes swarms that converge before they explore.",
 	},
 	"Griewank": {
 		fn: dragonfly.Griewank, name: "Griewank", lower: -600, upper: 600,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "Product-of-cosines ripple on a wide bowl. Gets easier, not harder, as dimensions rise.",
 	},
 	"Schwefel": {
 		fn: dragonfly.Schwefel, name: "Schwefel", lower: -500, upper: 500,
-		optimumAt: uniformOptimum(420.9687), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(420.9687), optimumValue: zeroMinimum(),
 		blurb: "Deceptive: the global minimum sits far from the second best, so the gradient actively misleads.",
 	},
 	"Levy": {
 		fn: dragonfly.Levy, name: "Levy", lower: -10, upper: 10,
-		optimumAt: uniformOptimum(1), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(1), optimumValue: zeroMinimum(),
 		blurb: "Sinusoidal ridges with a single global basin at (1,1).",
 	},
 	"Zakharov": {
 		fn: dragonfly.Zakharov, name: "Zakharov", lower: -5, upper: 10,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "No local minima, but strongly coupled dimensions — a test of coordinated movement.",
 	},
 	"Michalewicz": {
@@ -143,32 +146,32 @@ var benchmarks = map[string]benchmark{
 	},
 	"DixonPrice": {
 		fn: dragonfly.DixonPrice, name: "DixonPrice", lower: -10, upper: 10,
-		optimumAt: dixonPriceOptimum, optimumValue: knownValue(0),
+		optimumAt: dixonPriceOptimum, optimumValue: zeroMinimum(),
 		blurb: "A curved valley whose optimum shifts with the dimension index.",
 	},
 	"BentCigar": {
 		fn: dragonfly.BentCigar, name: "BentCigar", lower: -100, upper: 100,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "One direction is a million times cheaper than the rest. Tests handling of ill-conditioning.",
 	},
 	"Discus": {
 		fn: dragonfly.Discus, name: "Discus", lower: -100, upper: 100,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "BentCigar inverted: one direction dominates the cost entirely.",
 	},
 	"Weierstrass": {
 		fn: dragonfly.Weierstrass, name: "Weierstrass", lower: -0.5, upper: 0.5,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "Continuous everywhere, differentiable nowhere. Fractal roughness at every scale.",
 	},
 	"HappyCat": {
 		fn: dragonfly.HappyCat, name: "HappyCat", lower: -2, upper: 2,
-		optimumAt: uniformOptimum(-1), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(-1), optimumValue: zeroMinimum(),
 		blurb: "A thin curved shell of near-optimal points around a sphere of radius sqrt(n).",
 	},
 	"ExpandedSchafferF6": {
 		fn: dragonfly.ExpandedSchafferF6, name: "ExpandedSchafferF6", lower: -100, upper: 100,
-		optimumAt: uniformOptimum(0), optimumValue: knownValue(0),
+		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "Concentric ripples around the origin — every ring is a local minimum.",
 	},
 }

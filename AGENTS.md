@@ -540,7 +540,7 @@ spot for large swarms; it can be parallelised safely _precisely because_ it draw
 numbers, and `BenchmarkNeighbourScan` exists to prove that is worth doing before the
 complexity is added.
 
-Observers (`WithProgressObserver`, `WithPopulationObserver`) receive deep copies and run
+Observers (`WithProgressObserver`, `WithPopulationObserver`, `WithArchiveObserver`) receive deep copies and run
 synchronously on the caller's goroutine — they must not become an RNG or ordering back door.
 
 ## Common Pitfalls

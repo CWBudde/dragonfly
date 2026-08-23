@@ -96,6 +96,64 @@ snapshot without it cannot explain a move. It has no Mayfly counterpart.
 
 Population observers run after progress observers within the same iteration.
 
+## Archive observers — multi-objective runs
+
+`OptimizeMultiObjective` accepts run options too, and one of its own:
+
+```go
+result, err := dragonfly.OptimizeMultiObjective(ctx, config,
+	dragonfly.WithArchiveObserver(func(s dragonfly.ArchiveSnapshot) {
+		fmt.Printf("%d: %d members in %d objectives\n",
+			s.Iteration, len(s.Solutions), len(s.GridLower))
+	}),
+)
+```
+
+```go
+type ArchiveSnapshot struct {
+	Solutions       []*ParetoSolution // deep copies
+	GridLower       []float64         // copies of the archive's per-objective extent
+	GridUpper       []float64
+	Iteration       int               // one-based
+	EvaluationCount int
+	NGrid           int               // bins per objective
+}
+```
+
+`GridLower`, `GridUpper` and `NGrid` are the frame each solution's `GridIndex` is expressed in:
+bin _b_ of objective _m_ spans one `NGrid`-th of `[GridLower[m], GridUpper[m]]`. They move as
+the archive does, and all three are zero for an empty archive. The same extent is available
+after the fact from `ParetoArchive.GridBounds()`, which likewise returns copies — the archive
+rewrites its bounds through the existing backing arrays on every mutation.
+
+Copying the archive is not free either, and as with `PopulationSnapshot` nothing is copied
+unless an observer is registered.
+
+### Which options a multi-objective run accepts
+
+`WithProgressObserver`, `WithPopulationObserver` and `WithLogger` are **rejected**, not ignored:
+
+```go
+_, err := dragonfly.OptimizeMultiObjective(ctx, config,
+	dragonfly.WithProgressObserver(func(dragonfly.Progress) {}))
+// err: WithProgressObserver has no meaning for a multi-objective run: a Pareto front has
+//      no single best cost; use WithArchiveObserver
+```
+
+A Pareto front has no incumbent, so `Progress.Best` and `PopulationSnapshot.Best`/`Worst` have
+nothing honest to report — MODA's food source and enemy are per-iteration roulette draws from
+the archive, not running bests. The logger's iteration and completion events report a single
+best cost and a `*Result`, neither of which a multi-objective run has. This is the rule
+`validateMultiObjectiveConfig` already applies to `Convergence.TargetCost` and
+`ConstraintHandlingPenalty`, applied one layer out: a caller who registers an observer is
+waiting for something, and a run that quietly never calls it is worse than one that refuses to
+start.
+
+Symmetrically, `OptimizeContext` and `OptimizeBinaryContext` reject `WithArchiveObserver`.
+
+`WithInitialPopulation` works on all three entry points. A nil observer registers nothing and
+is never rejected.
+
 ## Structured logging
 
 ```go

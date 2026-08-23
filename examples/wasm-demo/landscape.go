@@ -123,12 +123,12 @@ func jsLandscape(opts js.Value) any {
 	return response
 }
 
-// normalize maps raw objective samples onto [0,1] for the colour ramp.
+// normalize maps raw objective samples onto [0,1] for the color ramp.
 //
 // "rank" is the default, and it is the only mode that reliably shows structure.
 // Benchmark landscapes have wildly different value distributions: Rastrigin
 // spends most of its domain in a narrow band near the mean, so both a linear
-// and a log ramp paint almost the whole picture one colour and the basins the
+// and a log ramp paint almost the whole picture one color and the basins the
 // swarm is actually hunting disappear. Ranking each sample against the others
 // spreads the ramp evenly by construction, whatever the distribution.
 //

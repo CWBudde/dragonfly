@@ -82,9 +82,18 @@ result, err := dragonfly.OptimizeContext(ctx, config,
 | `WithInitialPopulation(positions)` | seeds the leading swarm slots; the rest stay random                     |
 | `WithProgressObserver(fn)`         | one `Progress` per completed iteration                                  |
 | `WithPopulationObserver(fn)`       | one `PopulationSnapshot` per iteration — the whole swarm, deep-copied   |
+| `WithArchiveObserver(fn)`          | one `ArchiveSnapshot` per iteration — **multi-objective runs only**     |
 | `WithLogger(logger)`               | `optimization_started`, `iteration_completed`, `optimization_completed` |
 
 Passing `nil` to any observer option disables it.
+
+The last two rows are mutually exclusive by problem class, and an option used
+on the wrong one is **rejected rather than silently ignored**:
+`OptimizeContext` and `OptimizeBinaryContext` refuse `WithArchiveObserver`,
+and `OptimizeMultiObjective` refuses `WithProgressObserver`,
+`WithPopulationObserver` and `WithLogger` — a Pareto run has no single
+incumbent for any of them to report. `WithInitialPopulation` works on all
+three.
 
 ## Result fields and exports
 
