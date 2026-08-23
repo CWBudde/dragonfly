@@ -30,6 +30,7 @@ type weightSchedule struct {
 //	s  = 2*rand*mc,  a = 2*rand*mc,  c = 2*rand*mc
 //	f  = 2*rand
 //	e  = mc, forced to 0 once t > EnemyCutoffFraction*T
+//	     (inert at the default 0.75, since mc is already 0 past T/2)
 //	r  = (ub-lb)/RadiusInitialDivisor + (ub-lb)*(t/T)*RadiusGrowth
 //	ΔX_max = (ub-lb)*MaxStepRatio
 //
@@ -123,6 +124,10 @@ func convergenceFactor(iteration, maxIterations int) float64 {
 // exactly zero after it. The paper switches the enemy term off for the last
 // quarter of the run, once the swarm should be exploiting the food source
 // rather than being pushed away from the worst position seen.
+//
+// At the default cutoff of three quarters the branch changes nothing: mc is
+// already zero for every t past T/2, so only a fraction below 0.5 can make the
+// cutoff bite. See Config.EnemyCutoffFraction.
 func scheduledEnemyWeight(config *Config, mc float64, iteration, maxIterations int) float64 {
 	if float64(iteration) > config.EnemyCutoffFraction*float64(maxIterations) {
 		return 0

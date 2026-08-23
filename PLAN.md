@@ -490,11 +490,17 @@ statistical question with a tolerance attached.
 
 ### Found while documenting (2026-08-23)
 
-- [ ] `EnemyCutoffFraction` is dead at its default. `e = mc`, and `mc` already reaches
+- [x] `EnemyCutoffFraction` is dead at its default. `e = mc`, and `mc` already reaches
       zero at `t = T/2`, so the `0.75·T` cutoff can never fire -- only a fraction below
       `0.5` changes behaviour. This matches the paper (both rules are in `DA.m`), so it is
-      not a defect, but the field advertises a control it does not have at its default.
-      Decide whether to document it as inert or drop it.
+      not a defect, but the field advertised a control it does not have at its default.
+      **Resolved 2026-08-23: documented as inert rather than dropped.** The field's godoc
+      now says so outright, `scheduledEnemyWeight` repeats it at the call site, and
+      `TestEnemyCutoffFractionIsInertAtDefault` pins the property -- every fraction from
+      `0.5` up produces an identical enemy schedule. The cutoff is also inert whenever
+      `EnemyWeight` is pinned off `WeightAuto`, which the godoc now states too. It stays
+      because the paper and `DA.m` carry both rules and a reader checking the code against
+      them should find it where they expect it.
 - [ ] MODA recovers the ZDT fronts only at low dimensionality. At the ZDT suite's original
       30 dimensions (NPop 100, 1000 iterations) the archive is non-dominated but its lowest
       `f2` is 1.39, well off the true front. The Phase 6 gate is met at the tests' `d = 5`
@@ -512,9 +518,17 @@ defects. They are tracked in both repositories and should be fixed in both toget
 two benchmark suites stay numerically comparable. See the note at the top of
 `../Mayfly/PLAN.md` for the full write-up.
 
-- [ ] `Levy([])` panics with `index out of range [0] with length 0` — the only benchmark
+**Resolved 2026-08-23, in both repositories together.** The convention is now one line in
+the `functions.go` file comment: every single-objective benchmark function returns `0` for
+an empty position vector. `Ackley`, `HappyCat` and `Levy` gained the guard that gives them
+that; the other twelve already did it. `TestBenchmarkFunctionsEmptyInput` asserts it for all
+fifteen at once, against both a nil slice and an allocated empty one, so a sixteenth function
+cannot land without answering the question. It replaces the `empty_vector` subtest that
+logged the results and asserted nothing.
+
+- [x] `Levy([])` panics with `index out of range [0] with length 0` — the only benchmark
       function that panics rather than returning a value
-- [ ] Empty-input handling is inconsistent: 12 functions return `0`, `Ackley` and `HappyCat`
+- [x] Empty-input handling is inconsistent: 12 functions return `0`, `Ackley` and `HappyCat`
       return `NaN` (division by `n`), `Levy` panics. Choose one convention, document it in
       the package comment, and assert it for all 15 functions in one table-driven test
 

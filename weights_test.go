@@ -190,6 +190,45 @@ func TestEnemyWeightNonZeroBeforeCutoff(t *testing.T) {
 	}
 }
 
+// TestEnemyCutoffFractionIsInertAtDefault documents that the cutoff cannot
+// change the enemy weight anywhere at or above 0.5: mc has already decayed to
+// zero by T/2, so every fraction from there up produces the same schedule. Each
+// variant gets its own seeded RNG because computeWeights consumes exactly four
+// draws per call, and the streams must line up iteration for iteration.
+func TestEnemyCutoffFractionIsInertAtDefault(t *testing.T) {
+	baseline := weightTestConfig()
+	baseline.MaxIterations = 100
+
+	if baseline.EnemyCutoffFraction != 0.75 {
+		t.Fatalf("default EnemyCutoffFraction = %v, want 0.75", baseline.EnemyCutoffFraction)
+	}
+
+	const seed = 8
+
+	reference := make([]float64, baseline.MaxIterations+1)
+	referenceRNG := weightTestRNG(seed)
+
+	for iteration := range reference {
+		reference[iteration] = computeWeights(baseline, iteration, baseline.MaxIterations, referenceRNG).Enemy
+	}
+
+	for _, fraction := range []float64{0.5, 0.75, 1.0} {
+		config := weightTestConfig()
+		config.MaxIterations = baseline.MaxIterations
+		config.EnemyCutoffFraction = fraction
+
+		rng := weightTestRNG(seed)
+
+		for iteration := range reference {
+			got := computeWeights(config, iteration, config.MaxIterations, rng).Enemy
+			if got != reference[iteration] {
+				t.Fatalf("cutoff %v, iteration %d: enemy = %v, want %v",
+					fraction, iteration, got, reference[iteration])
+			}
+		}
+	}
+}
+
 func TestSwarmingWeightsFollowConvergenceFactor(t *testing.T) {
 	config := weightTestConfig()
 	config.MaxIterations = 100

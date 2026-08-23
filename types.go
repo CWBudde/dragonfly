@@ -178,7 +178,15 @@ type Config struct {
 	MaxStepRatio float64 `json:"max_step_ratio"`
 
 	// EnemyCutoffFraction is the fraction of the run after which the enemy
-	// weight is forced to zero. The paper uses three quarters.
+	// weight is forced to zero. The paper uses three quarters, and at that
+	// default the field is inert: the convergence factor mc that the enemy
+	// weight otherwise follows already reaches zero at half the run, so the
+	// cutoff only ever replaces a zero with a zero. Only a fraction below 0.5
+	// changes any value. It is also ignored entirely when EnemyWeight is pinned
+	// to anything other than WeightAuto, since a pinned weight bypasses the
+	// schedule. The field stays because the paper and the author's DA.m carry
+	// both rules, and a reader checking the code against them should find the
+	// cutoff where they expect it.
 	EnemyCutoffFraction float64 `json:"enemy_cutoff_fraction"`
 
 	// LevyBeta and LevyScale parameterize Mantegna's algorithm.

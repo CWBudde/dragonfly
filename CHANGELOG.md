@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Levy` no longer panics on an empty position vector, and `Ackley` and `HappyCat` no
+  longer return `NaN` for one. The whole single-objective benchmark suite now follows one
+  documented convention -- `f([]) == 0` -- asserted for all fifteen functions by
+  `TestBenchmarkFunctionsEmptyInput`. The same fix landed in the sibling Mayfly library, so
+  the two suites stay numerically comparable.
+
+### Changed
+
+- `Config.EnemyCutoffFraction` is documented as inert at its default. The enemy weight
+  follows `mc`, which already reaches zero at half the run, so the `0.75` cutoff only ever
+  replaces a zero with a zero; only a fraction below `0.5` changes anything, and nothing at
+  all when `EnemyWeight` is pinned off `WeightAuto`. Behaviour is unchanged -- the field
+  stays because the paper and `DA.m` carry both rules.
+
 ## [0.1.0] - 2026-08-23
 
 First release. A dependency-free Go implementation of Mirjalili's Dragonfly Algorithm,
