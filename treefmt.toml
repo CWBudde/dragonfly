@@ -1,0 +1,68 @@
+# treefmt configuration for the Dragonfly Algorithm library.
+# Run with: just fmt  (treefmt --allow-missing-formatter)
+# See: https://treefmt.com
+
+[global]
+excludes = [
+  # go tooling owns these
+  "go.mod",
+  "go.sum",
+  # build & coverage artifacts
+  "*.test",
+  "*.prof",
+  "coverage.out",
+  "coverage.html",
+  # dependencies
+  "vendor/**",
+  "node_modules/**",
+  # generated changelog
+  "CHANGELOG.md",
+  # gitignore
+  "**/.gitignore",
+]
+
+### Go
+
+[formatter.gofumpt]
+command = "gofumpt"
+options = ["-w"]
+includes = ["*.go"]
+
+[formatter.gci]
+command = "gci"
+options = [
+  "write",
+  "--skip-generated",
+  "-s",
+  "standard",
+  "-s",
+  "default",
+  "-s",
+  "prefix(github.com/MeKo-Christian/dragonfly)",
+]
+includes = ["*.go"]
+priority = 1 # run after gofumpt
+
+### Misc
+
+[formatter.prettier]
+command = "prettier"
+options = ["-w"]
+includes = ["*.md", "*.json", "*.yaml", "*.yml"]
+
+[formatter.taplo]
+command = "taplo"
+options = ["format"]
+includes = ["*.toml"]
+
+### Shell
+
+[formatter.shellcheck]
+command = "shellcheck"
+includes = ["*.sh"]
+
+[formatter.shfmt]
+command = "shfmt"
+options = ["-s", "-w", "-i", "2"]
+includes = ["*.sh"]
+priority = 1                      # run after shellcheck
