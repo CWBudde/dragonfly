@@ -2,7 +2,8 @@
 
 Module: `github.com/CWBudde/dragonfly`
 Package: `dragonfly` (flat, at the repository root)
-Status: **Phase 1 in progress** — scaffold laid, no algorithm code yet.
+Status: **Phases 1–10 complete**, released as `v0.1.0`. The unchecked boxes below the
+phases are the deferred and open items, not work in progress.
 
 This document is the roadmap. It is organised the same way as the sibling
 [Mayfly](https://github.com/cwbudde/mayfly) project's `PLAN.md`: numbered phases,
@@ -469,13 +470,19 @@ statistical question with a tolerance attached.
 - [x] Tag `v0.1.0`, annotated and pushed to `github.com/CWBudde/dragonfly`; the Go
       module proxy handles publication from there.
 - [x] Module path corrected to `github.com/CWBudde/dragonfly`. It was
-      `github.com/MeKo-Christian/dragonfly`, which matched no repository that exists,
-      so `go get` could not have resolved the module under either name. Because the
-      repository is `Dragonfly` and the package is `dragonfly`, every import of the
-      module now carries an explicit `dragonfly` alias — goimports requires one when the
-      final path element and the package name differ. Renaming the repository to
-      lowercase would remove that alias; it is a deliberate open choice, not an
-      oversight.
+      `github.com/MeKo-Christian/dragonfly`, which matched no repository that exists, so
+      `go get` could not have resolved the module under either name — and `release.yml`
+      asserted `go list -m` against that same wrong constant, so the release workflow
+      agreed with the error instead of catching it. The repository was briefly
+      `CWBudde/Dragonfly`, which forced an explicit `dragonfly` import alias everywhere
+      (goimports requires one when the final path element and the package name differ);
+      it has since been renamed to lowercase and the aliases are gone.
+- [ ] `github.com/CWBudde/Dragonfly@v0.1.0` — the capitalised path — was published to
+      the module proxy before the rename and is cached there permanently, with its
+      hashes recorded in the checksum database. Module paths are case-sensitive to the
+      proxy, so that is a distinct module from the lowercase one and cannot be
+      withdrawn. Harmless, but a search may surface it: decide whether to note it in the
+      README so nobody depends on the capitalised path by accident.
 
 ---
 
