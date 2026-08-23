@@ -803,3 +803,66 @@ func TestBinaryParallelCancellationReturnsNoResult(t *testing.T) {
 		t.Errorf("OptimizeBinaryContext() result = %+v for a canceled context, want nil", result)
 	}
 }
+
+// TestNewEvaluationPoolNormalizesCapacity covers the degenerate capacities the
+// optimization loop never passes: a negative capacity must be clamped to zero
+// rather than reaching make, and the buffer must still grow on first use.
+func TestNewEvaluationPoolNormalizesCapacity(t *testing.T) {
+	evaluator := newConstraintEvaluator(Sphere, nil)
+
+	tests := []struct {
+		name           string
+		capacity       int
+		wantCapAtLeast int
+	}{
+		{"negative capacity", -8, 0},
+		{"zero capacity", 0, 0},
+		{"positive capacity", 16, 16},
+	}
+
+	for _, test := range tests {
+		pool := newEvaluationPool(evaluator, 2, test.capacity)
+		if pool == nil {
+			t.Fatalf("%s: newEvaluationPool returned nil", test.name)
+		}
+
+		if len(pool.scores) != 0 {
+			t.Errorf("%s: pool starts with %d scores, want 0", test.name, len(pool.scores))
+		}
+
+		if cap(pool.scores) < test.wantCapAtLeast {
+			t.Errorf("%s: pool scratch capacity = %d, want at least %d",
+				test.name, cap(pool.scores), test.wantCapAtLeast)
+		}
+
+		if pool.maxWorkers != 2 {
+			t.Errorf("%s: pool.maxWorkers = %d, want 2", test.name, pool.maxWorkers)
+		}
+	}
+
+	// A pool built with a non-positive capacity still evaluates a full swarm:
+	// the scratch buffer grows on the first batch.
+	pool := newEvaluationPool(evaluator, 2, -1)
+	swarm := []Dragonfly{
+		{Position: []float64{1, 0}, Step: []float64{0, 0}},
+		{Position: []float64{0, 0}, Step: []float64{0, 0}},
+		{Position: []float64{3, 4}, Step: []float64{0, 0}},
+	}
+
+	batch, err := pool.evaluate(context.Background(), swarm)
+	if err != nil {
+		t.Fatalf("evaluate on a zero-capacity pool: %v", err)
+	}
+
+	if len(batch.scores) != len(swarm) {
+		t.Fatalf("evaluate scored %d of %d dragonflies", len(batch.scores), len(swarm))
+	}
+
+	if batch.best.best.Cost != 0 {
+		t.Errorf("batch best cost = %v, want 0", batch.best.best.Cost)
+	}
+
+	if batch.worst.best.Cost != 25 {
+		t.Errorf("batch worst cost = %v, want 25", batch.worst.best.Cost)
+	}
+}

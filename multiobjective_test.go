@@ -775,3 +775,173 @@ func TestMultiObjectiveRejectsVaryingObjectiveCount(t *testing.T) {
 		t.Error("a varying objective count was accepted")
 	}
 }
+
+// TestParetoSolutionCloneIsADeepCopy covers the nil guard and pins the copy as
+// deep: mutating the clone must not reach back into the original.
+func TestParetoSolutionCloneIsADeepCopy(t *testing.T) {
+	var absent *ParetoSolution
+	if got := absent.clone(); got != nil {
+		t.Errorf("(*ParetoSolution)(nil).clone() = %v, want nil", got)
+	}
+
+	original := &ParetoSolution{
+		Position:         []float64{1, 2, 3},
+		ObjectiveValues:  []float64{4, 5},
+		GridIndex:        []int{6, 7},
+		GridKey:          67,
+		CrowdingDistance: 1.5,
+		Rank:             2,
+		DominationCount:  3,
+	}
+
+	copied := original.clone()
+	if copied == original {
+		t.Fatal("clone returned the receiver itself")
+	}
+
+	copied.Position[0] = -1
+	copied.ObjectiveValues[1] = -1
+	copied.GridIndex[0] = -1
+
+	if original.Position[0] != 1 || original.ObjectiveValues[1] != 5 || original.GridIndex[0] != 6 {
+		t.Errorf("clone aliased the original: %v / %v / %v",
+			original.Position, original.ObjectiveValues, original.GridIndex)
+	}
+
+	if copied.GridKey != 67 {
+		t.Errorf("clone GridKey = %d, want 67", copied.GridKey)
+	}
+
+	// The sorting bookkeeping is scratch space and is deliberately not copied.
+	if copied.CrowdingDistance != 0 || copied.Rank != 0 || copied.DominationCount != 0 {
+		t.Errorf("clone carried sorting scratch: distance %v rank %d dominated-by %d",
+			copied.CrowdingDistance, copied.Rank, copied.DominationCount)
+	}
+}
+
+// TestNonNegativeClampsInvalidExponents covers the guard that keeps a roulette
+// exponent from inverting the preference it exists to express.
+func TestNonNegativeClampsInvalidExponents(t *testing.T) {
+	tests := []struct {
+		name  string
+		value float64
+		want  float64
+	}{
+		{"zero", 0, 0},
+		{"positive", 4, 4},
+		{"large finite", 1e300, 1e300},
+		{"negative", -2, 0},
+		{"negative zero is zero", math.Copysign(0, -1), 0},
+		{"NaN", math.NaN(), 0},
+		{"negative infinity", math.Inf(-1), 0},
+		{"positive infinity", math.Inf(1), 0},
+	}
+
+	for _, test := range tests {
+		if got := nonNegative(test.value); got != test.want {
+			t.Errorf("%s: nonNegative(%v) = %v, want %v", test.name, test.value, got, test.want)
+		}
+	}
+}
+
+// TestNewParetoArchiveWithGridFallsBackOnBadSizes covers the two defaulting
+// branches a well-formed caller never takes.
+func TestNewParetoArchiveWithGridFallsBackOnBadSizes(t *testing.T) {
+	tests := []struct {
+		name      string
+		maxSize   int
+		nGrid     int
+		wantSize  int
+		wantNGrid int
+	}{
+		{"honest values", 12, 5, 12, 5},
+		{"zero max size", 0, 5, DefaultArchiveSize, 5},
+		{"negative max size", -3, 5, DefaultArchiveSize, 5},
+		{"zero grid", 12, 0, 12, DefaultArchiveNGrid},
+		{"negative grid", 12, -1, 12, DefaultArchiveNGrid},
+		{"both degenerate", 0, 0, DefaultArchiveSize, DefaultArchiveNGrid},
+	}
+
+	for _, test := range tests {
+		archive := NewParetoArchiveWithGrid(test.maxSize, test.nGrid, -1, 2, math.NaN())
+		if archive.MaxSize != test.wantSize {
+			t.Errorf("%s: MaxSize = %d, want %d", test.name, archive.MaxSize, test.wantSize)
+		}
+
+		if archive.NGrid != test.wantNGrid {
+			t.Errorf("%s: NGrid = %d, want %d", test.name, archive.NGrid, test.wantNGrid)
+		}
+
+		if archive.Beta != 0 || archive.Gamma != 2 || archive.Delta != 0 {
+			t.Errorf("%s: exponents = (%v, %v, %v), want (0, 2, 0)",
+				test.name, archive.Beta, archive.Gamma, archive.Delta)
+		}
+	}
+}
+
+// TestParetoArchiveLenAndNonDominationGuards covers the nil-receiver branches of
+// Len and IsNonDominated, and the negative answer IsNonDominated must give when
+// the invariant is deliberately broken.
+func TestParetoArchiveLenAndNonDominationGuards(t *testing.T) {
+	var absent *ParetoArchive
+
+	if got := absent.Len(); got != 0 {
+		t.Errorf("(*ParetoArchive)(nil).Len() = %d, want 0", got)
+	}
+
+	if !absent.IsNonDominated() {
+		t.Error("(*ParetoArchive)(nil).IsNonDominated() = false, want true")
+	}
+
+	empty := NewParetoArchive(4)
+	if got := empty.Len(); got != 0 {
+		t.Errorf("empty archive Len = %d, want 0", got)
+	}
+
+	if !empty.IsNonDominated() {
+		t.Error("an empty archive is not reported non-dominated")
+	}
+
+	// Two mutually non-dominated points on the anti-diagonal.
+	front := NewParetoArchive(4)
+	front.Solutions = []*ParetoSolution{
+		{ObjectiveValues: []float64{1, 4}},
+		{ObjectiveValues: []float64{4, 1}},
+	}
+
+	if front.Len() != 2 {
+		t.Errorf("front Len = %d, want 2", front.Len())
+	}
+
+	if !front.IsNonDominated() {
+		t.Error("a genuine front is not reported non-dominated")
+	}
+
+	// Injecting a dominated member behind Add's back must be detected: this is
+	// the negative answer the invariant tests rely on.
+	front.Solutions = append(front.Solutions, &ParetoSolution{ObjectiveValues: []float64{5, 5}})
+	if front.IsNonDominated() {
+		t.Error("IsNonDominated missed a dominated member")
+	}
+}
+
+// TestArchivePositionHandlesAMissingSolution covers the nil guard that makes an
+// empty archive yield the zero food and enemy vectors.
+func TestArchivePositionHandlesAMissingSolution(t *testing.T) {
+	if got := archivePosition(nil); got != nil {
+		t.Errorf("archivePosition(nil) = %v, want nil", got)
+	}
+
+	position := []float64{1, 2, 3}
+
+	got := archivePosition(&ParetoSolution{Position: position})
+	if len(got) != len(position) {
+		t.Fatalf("archivePosition returned %d components, want %d", len(got), len(position))
+	}
+
+	for i := range position {
+		if got[i] != position[i] {
+			t.Errorf("archivePosition()[%d] = %v, want %v", i, got[i], position[i])
+		}
+	}
+}

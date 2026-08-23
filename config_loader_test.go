@@ -606,3 +606,95 @@ func TestAutoTuneConfigIgnoresUnusableConfigs(t *testing.T) {
 		t.Errorf("npop = %d, want 7 -- there is nothing to tune without a ProblemSize", config.NPop)
 	}
 }
+
+// TestPlaceholderObjective pins the stand-in ValidateConfig substitutes for a
+// missing ObjectiveFunc: it must be total and finite for any input, so that a
+// deserialized configuration fails validation on a real problem rather than on
+// the probe.
+func TestPlaceholderObjective(t *testing.T) {
+	inputs := [][]float64{
+		nil,
+		{},
+		{0},
+		{1, -1, 1e300},
+		{math.Inf(1), math.Inf(-1), math.NaN()},
+	}
+
+	for _, input := range inputs {
+		got := placeholderObjective(input)
+		if got != 0 {
+			t.Errorf("placeholderObjective(%v) = %v, want 0", input, got)
+		}
+	}
+
+	// LoadConfig leaves ObjectiveFunc unset -- the placeholder is a validation
+	// probe, never something a loaded config keeps.
+	path := filepath.Join(t.TempDir(), "config.json")
+
+	err := SaveConfig(newLoaderTestConfig(), path)
+	if err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	loaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	if loaded.ObjectiveFunc != nil {
+		t.Error("LoadConfig left an ObjectiveFunc set; the placeholder must not escape validation")
+	}
+}
+
+// TestSaveConfigReportsWriteFailures covers the write-error path: a path that
+// cannot be created must surface as an error, not a silent no-op.
+func TestSaveConfigReportsWriteFailures(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"path is an existing directory", dir},
+		{"parent directory does not exist", filepath.Join(dir, "missing", "config.json")},
+		{"empty path", ""},
+	}
+
+	for _, test := range tests {
+		err := SaveConfig(newLoaderTestConfig(), test.path)
+		if err == nil {
+			t.Errorf("%s: SaveConfig(%q) returned no error", test.name, test.path)
+
+			continue
+		}
+
+		if !strings.Contains(err.Error(), "failed to write config file") {
+			t.Errorf("%s: SaveConfig error = %q, want it to name the write failure", test.name, err)
+		}
+	}
+}
+
+// TestPrintPresets is a smoke test for the stdout listing: every preset name
+// and its description must reach the caller's terminal.
+func TestPrintPresets(t *testing.T) {
+	text := captureStdout(t, PrintPresets)
+	if text == "" {
+		t.Fatal("PrintPresets wrote nothing to stdout")
+	}
+
+	if !strings.Contains(text, "Available Configuration Presets:") {
+		t.Errorf("PrintPresets output has no heading:\n%s", text)
+	}
+
+	descriptions := ListPresets()
+
+	for _, name := range PresetNames() {
+		if !strings.Contains(text, name) {
+			t.Errorf("PrintPresets output does not list %q:\n%s", name, text)
+		}
+
+		if !strings.Contains(text, descriptions[ConfigPreset(name)]) {
+			t.Errorf("PrintPresets output does not describe %q:\n%s", name, text)
+		}
+	}
+}

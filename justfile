@@ -206,10 +206,23 @@ optimize func="Sphere" size="30" iter="1000":
 # Install development tools (see also: just setup-deps)
 install-tools: setup-deps
     go install golang.org/x/tools/cmd/godoc@latest
+    go install github.com/sonatype-nexus-community/nancy@latest
+    go install golang.org/x/vuln/cmd/govulncheck@latest
 
-# Check for security vulnerabilities
-security:
+# Check for security vulnerabilities in the dependency tree and in reachable code
+security: audit vuln
+
+# Audit the production dependency tree against the OSS Index.
+# The library is stdlib-only, so this audits nothing today and exists to catch the
+# first real dependency that is ever added.
+audit:
     go list -json -deps ./... | nancy sleuth
+
+# Scan for vulnerabilities Go's own database knows about, by reachability.
+# Unlike `just audit` this covers test-only dependencies -- godog and its tree -- and
+# reports whether a vulnerable symbol is actually called rather than merely present.
+vuln:
+    govulncheck ./...
 
 # Validate a prospective release without creating a tag
 release-check version:

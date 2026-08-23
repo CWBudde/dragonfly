@@ -452,11 +452,23 @@ statistical question with a tolerance attached.
 
 ## Phase 10: Release preparation
 
-- [ ] 80%+ statement coverage
-- [ ] `just security` (nancy) clean
-- [ ] `CHANGELOG.md` `## [0.1.0]` entry
-- [ ] `just release-check 0.1.0` passes
-- [ ] Tag `v0.1.0`; the Go module proxy handles publication
+- [x] 80%+ statement coverage — 96.3%
+- [x] `just security` clean. Split into `just audit` (nancy, production tree) and
+      `just vuln` (`govulncheck`, which also covers the test-only dependency tree and
+      reports by reachability); `security` runs both, and `install-tools` now installs
+      them. Worth knowing what the nancy half actually proves: the library is
+      stdlib-only, so `go list -deps ./...` yields no third-party packages and nancy
+      reports `Audited Dependencies: 0`. That is the intended state, not a passing scan
+      — the recipe is there to catch the first real dependency that is ever added.
+      `govulncheck` reports nothing reachable; its findings are all in the local Go
+      toolchain's own stdlib, which is a property of the build machine rather than of
+      this module. Documented in `docs/releasing.md`.
+- [x] `CHANGELOG.md` `## [0.1.0]` entry, including a `Known limitations` section that
+      names the unverified MODA and BDA constants rather than leaving them implied
+- [x] `just release-check 0.1.0` passes
+- [x] Tag `v0.1.0` created locally, annotated. **Not pushed** — the repository has no
+      remote yet, so publication to the Go module proxy is still pending a
+      `git push origin main v0.1.0`.
 
 ---
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -736,4 +737,308 @@ func TestQualityBarHandlesNonFiniteMeans(t *testing.T) {
 	if strings.Contains(bar, "#") {
 		t.Errorf("the worst mean rendered as %q", bar)
 	}
+}
+
+// captureStdout redirects os.Stdout for the duration of fn and returns
+// everything written to it. The Print* helpers have no io.Writer form, so this
+// is the only way to assert what they produce.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+
+	original := os.Stdout
+	os.Stdout = writer
+
+	defer func() { os.Stdout = original }()
+
+	captured := make(chan string, 1)
+
+	go func() {
+		var buffer bytes.Buffer
+
+		_, _ = buffer.ReadFrom(reader)
+		captured <- buffer.String()
+	}()
+
+	fn()
+
+	_ = writer.Close()
+	text := <-captured
+	_ = reader.Close()
+
+	return text
+}
+
+// TestComparisonRunnerOptionSettersAssignTheirField pins each fluent setter to
+// the field it claims, and to returning the same runner so the chain works.
+func TestComparisonRunnerOptionSettersAssignTheirField(t *testing.T) {
+	runner := NewComparisonRunner()
+
+	if got := runner.WithTarget(1e-8); got != runner {
+		t.Errorf("WithTarget returned %p, want the receiver %p", got, runner)
+	}
+
+	if runner.TargetCost != 1e-8 {
+		t.Errorf("WithTarget(1e-8) left TargetCost = %v, want 1e-8", runner.TargetCost)
+	}
+
+	// Zero is a legitimate setting: it disables the success threshold.
+	runner.WithTarget(0)
+
+	if runner.TargetCost != 0 {
+		t.Errorf("WithTarget(0) left TargetCost = %v, want 0", runner.TargetCost)
+	}
+
+	if got := runner.WithVerbose(true); got != runner {
+		t.Errorf("WithVerbose returned %p, want the receiver %p", got, runner)
+	}
+
+	if !runner.Verbose {
+		t.Error("WithVerbose(true) left Verbose false")
+	}
+
+	runner.WithVerbose(false)
+
+	if runner.Verbose {
+		t.Error("WithVerbose(false) left Verbose true")
+	}
+}
+
+// TestPrintComparisonResults is a smoke test for the stdout wrapper around
+// WriteComparisonResults: it must delegate, not swallow the report.
+func TestPrintComparisonResults(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping a full comparison run in short mode")
+	}
+
+	result := comparisonRunnerForTest().Compare("Sphere", Sphere, 5, -5, 5)
+
+	text := captureStdout(t, result.PrintComparisonResults)
+	if text == "" {
+		t.Fatal("PrintComparisonResults wrote nothing to stdout")
+	}
+
+	for _, want := range []string{"Sphere", "DA", "BDA"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the printed report does not mention %q:\n%s", want, text)
+		}
+	}
+}
+
+// TestRegularizedGammaQEdgesAndKnownValues covers the two guards
+// chiSquareSurvival can never reach, and checks the function against the closed
+// form Q(1, x) = e^-x and against chi-square table values.
+func TestRegularizedGammaQEdgesAndKnownValues(t *testing.T) {
+	// Guards: a non-positive shape or a negative argument is undefined.
+	for _, guard := range []struct{ a, x float64 }{{0, 1}, {-1, 1}, {1, -1}, {-1, -1}} {
+		if got := regularizedGammaQ(guard.a, guard.x); !math.IsNaN(got) {
+			t.Errorf("regularizedGammaQ(%v, %v) = %v, want NaN", guard.a, guard.x, got)
+		}
+	}
+
+	if got := regularizedGammaQ(2.5, 0); got != 1 {
+		t.Errorf("regularizedGammaQ(2.5, 0) = %v, want 1", got)
+	}
+
+	tests := []struct {
+		name      string
+		a         float64
+		x         float64
+		want      float64
+		tolerance float64
+	}{
+		// Q(1, x) = exp(-x) exactly. x < a+1 = 2 takes the series branch,
+		// x >= 2 the continued fraction, so both are exercised.
+		{"series branch", 1, 0.5, math.Exp(-0.5), 1e-12},
+		{"boundary", 1, 2, math.Exp(-2), 1e-12},
+		{"continued fraction branch", 1, 7, math.Exp(-7), 1e-12},
+		// Q(a, x) with a = df/2 and x = c/2 is the chi-square upper tail;
+		// 11.0704977 is the 0.05 critical value for 5 degrees of freedom.
+		{"chi-square df=5 at 0.05", 2.5, 11.0704977 / 2, 0.05, 1e-7},
+		// Q(1/2, x) = erfc(sqrt(x)).
+		{"half shape", 0.5, 0.25, math.Erfc(0.5), 1e-12},
+	}
+
+	for _, test := range tests {
+		got := regularizedGammaQ(test.a, test.x)
+		if math.Abs(got-test.want) > test.tolerance {
+			t.Errorf("%s: regularizedGammaQ(%v, %v) = %v, want %v",
+				test.name, test.a, test.x, got, test.want)
+		}
+	}
+}
+
+// TestCollectReportsFirstErrorAndCancels drives collect directly: it must keep
+// the first failure, cancel the remaining work unless told to continue, and
+// still store every result it was handed.
+func TestCollectReportsFirstErrorAndCancels(t *testing.T) {
+	newResults := func() chan comparisonJobResult {
+		results := make(chan comparisonJobResult, 3)
+		results <- comparisonJobResult{run: RunResult{BestCost: 1.5}, variantIndex: 0, runIndex: 0}
+
+		results <- comparisonJobResult{
+			err:          errors.New("first failure"),
+			run:          RunResult{BestCost: math.Inf(1)},
+			variantIndex: 1,
+			runIndex:     0,
+		}
+
+		results <- comparisonJobResult{err: errors.New("later failure"), variantIndex: 1, runIndex: 1}
+
+		close(results)
+
+		return results
+	}
+
+	names := []string{"DA", "BDA"}
+
+	t.Run("stops on the first error", func(t *testing.T) {
+		runner := NewComparisonRunner()
+		runner.Verbose = true
+
+		runResults := [][]RunResult{make([]RunResult, 2), make([]RunResult, 2)}
+		canceled := 0
+
+		var err error
+
+		text := captureStdout(t, func() {
+			err = runner.collect(newResults(), names, runResults, 3, false, func() { canceled++ })
+		})
+
+		if err == nil {
+			t.Fatal("collect returned no error")
+		}
+
+		if !strings.Contains(err.Error(), "compare BDA run 1") ||
+			!strings.Contains(err.Error(), "first failure") {
+			t.Errorf("collect error = %q, want it to name BDA run 1 and the first failure", err)
+		}
+
+		if strings.Contains(err.Error(), "later failure") {
+			t.Errorf("collect error = %q, want only the first failure kept", err)
+		}
+
+		if canceled != 1 {
+			t.Errorf("cancel called %d times, want 1", canceled)
+		}
+
+		if runResults[0][0].BestCost != 1.5 {
+			t.Errorf("runResults[0][0].BestCost = %v, want 1.5", runResults[0][0].BestCost)
+		}
+
+		if !strings.Contains(text, "Completed 3/3 comparison runs") {
+			t.Errorf("verbose output = %q, want it to report 3/3 completed", text)
+		}
+	})
+
+	t.Run("continues on error", func(t *testing.T) {
+		runner := NewComparisonRunner()
+
+		runResults := [][]RunResult{make([]RunResult, 2), make([]RunResult, 2)}
+		canceled := 0
+
+		err := runner.collect(newResults(), names, runResults, 3, true, func() { canceled++ })
+		if err == nil {
+			t.Fatal("collect returned no error")
+		}
+
+		if canceled != 0 {
+			t.Errorf("cancel called %d times with continueOnError, want 0", canceled)
+		}
+	})
+}
+
+// TestExecuteJobFailureAndTargetPaths covers the two branches a successful
+// default comparison never takes: a variant whose Run fails, and a target cost
+// that the convergence curve actually reaches.
+func TestExecuteJobFailureAndTargetPaths(t *testing.T) {
+	jobConfig := func() *Config {
+		config := NewDefaultConfig()
+		config.ObjectiveFunc = Sphere
+		config.ProblemSize = 3
+		config.LowerBound = -5
+		config.UpperBound = 5
+		config.NPop = 8
+		config.MaxIterations = 6
+		config.Rand = rand.New(rand.NewSource(42))
+
+		return config
+	}
+
+	t.Run("variant failure", func(t *testing.T) {
+		moda, err := NewVariant("moda")
+		if err != nil {
+			t.Fatalf("NewVariant(moda): %v", err)
+		}
+
+		runner := NewComparisonRunner()
+		job := comparisonJob{
+			config: jobConfig(), variant: moda, variantIndex: 1, runIndex: 2, seed: 77,
+		}
+
+		got := runner.executeJob(context.Background(), job)
+		if !errors.Is(got.err, ErrMultiObjectiveVariant) {
+			t.Errorf("executeJob err = %v, want ErrMultiObjectiveVariant", got.err)
+		}
+
+		if !math.IsInf(got.run.BestCost, 1) {
+			t.Errorf("failed run BestCost = %v, want +Inf", got.run.BestCost)
+		}
+
+		if got.run.Error == "" {
+			t.Error("failed run carries no Error string")
+		}
+
+		if got.variantIndex != 1 || got.runIndex != 2 || got.run.Seed != 77 {
+			t.Errorf("executeJob returned indices (%d, %d) seed %d, want (1, 2) seed 77",
+				got.variantIndex, got.runIndex, got.run.Seed)
+		}
+	})
+
+	t.Run("target reached on the first iteration", func(t *testing.T) {
+		da, err := NewVariant("da")
+		if err != nil {
+			t.Fatalf("NewVariant(da): %v", err)
+		}
+
+		runner := NewComparisonRunner().WithTarget(math.MaxFloat64)
+		job := comparisonJob{config: jobConfig(), variant: da, variantIndex: 0, runIndex: 0, seed: 3}
+
+		got := runner.executeJob(context.Background(), job)
+		if got.err != nil {
+			t.Fatalf("executeJob: %v", got.err)
+		}
+
+		if got.run.ConvergenceAt != 1 {
+			t.Errorf("ConvergenceAt = %d, want 1 for an unreachably loose target", got.run.ConvergenceAt)
+		}
+
+		if got.run.Iterations == 0 || got.run.FuncEvals == 0 {
+			t.Errorf("executeJob recorded Iterations = %d, FuncEvals = %d, want both positive",
+				got.run.Iterations, got.run.FuncEvals)
+		}
+	})
+
+	t.Run("target never reached", func(t *testing.T) {
+		da, err := NewVariant("da")
+		if err != nil {
+			t.Fatalf("NewVariant(da): %v", err)
+		}
+
+		runner := NewComparisonRunner().WithTarget(math.SmallestNonzeroFloat64)
+		job := comparisonJob{config: jobConfig(), variant: da, variantIndex: 0, runIndex: 0, seed: 3}
+
+		got := runner.executeJob(context.Background(), job)
+		if got.err != nil {
+			t.Fatalf("executeJob: %v", got.err)
+		}
+
+		if got.run.ConvergenceAt != 0 {
+			t.Errorf("ConvergenceAt = %d, want 0 when the target is never reached", got.run.ConvergenceAt)
+		}
+	})
 }

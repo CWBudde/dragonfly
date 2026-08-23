@@ -76,8 +76,18 @@ an unused tag name before creating the annotated tag. It does not push.
 Phase 10 of [PLAN.md](../PLAN.md) adds two the tooling does not enforce:
 
 - **80%+ statement coverage.** `just test` writes `coverage.out` and `coverage.html`.
-- **`just security` clean** — `go list -json -deps ./... | nancy sleuth`. With one test-only
-  direct dependency there is little to find, which is the point of keeping it that way.
+- **`just security` clean.** This is two scans, and they cover different things.
+  `just audit` pipes `go list -json -deps ./...` into `nancy sleuth`, which sees only the
+  production build — and because the library is stdlib-only, that build has no third-party
+  packages at all, so nancy reports `Audited Dependencies: 0`. That is the intended state
+  rather than a passing scan, and the recipe exists to catch the first real dependency that
+  is ever added. `just vuln` runs `govulncheck ./...`, which does cover the test-only
+  dependency tree and reports by reachability, so it is the one that would actually find
+  something today.
+
+  Note that `govulncheck` also reports vulnerabilities in the Go toolchain the scan runs on.
+  Those are a property of the local Go installation, not of this module; check whether a
+  finding names `stdlib` or `os@go1.x` before treating it as a release blocker.
 
 Before tagging a release, also re-measure [performance.md](performance.md) on the release
 machine if any of its numbers are quoted as thresholds anywhere, and re-run the long regression

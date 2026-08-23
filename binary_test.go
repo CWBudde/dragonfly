@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"math/rand"
+	"strings"
 	"testing"
 )
 
@@ -489,5 +490,69 @@ func TestNewBinaryConfigIsABinaryPreset(t *testing.T) {
 
 	if config.LowerBound != 0 || config.UpperBound != 1 {
 		t.Errorf("bounds = [%v, %v], want [0, 1]", config.LowerBound, config.UpperBound)
+	}
+}
+
+// TestValidateInitialBitsRejectsNonBinaryComponents covers every rejection
+// branch: a seeded population must be exactly 0/1-valued, and the error must
+// name the offending element so the caller can find it.
+func TestValidateInitialBitsRejectsNonBinaryComponents(t *testing.T) {
+	tests := []struct {
+		name      string
+		positions [][]float64
+		wantErr   bool
+		wantIn    string
+	}{
+		{"nil population", nil, false, ""},
+		{"empty rows", [][]float64{{}, {}}, false, ""},
+		{"all bits", [][]float64{{0, 1, 0}, {1, 1, 1}}, false, ""},
+		{"fractional component", [][]float64{{0, 1}, {0.5, 1}}, true, "position 1 component 0"},
+		{"rounded-looking component", [][]float64{{0, 0.9999999}}, true, "position 0 component 1"},
+		{"negative component", [][]float64{{-1, 0}}, true, "position 0 component 0"},
+		{"two-valued component", [][]float64{{1, 1}, {1, 2}}, true, "position 1 component 1"},
+		{"NaN component", [][]float64{{0, math.NaN()}}, true, "position 0 component 1"},
+		{"infinite component", [][]float64{{math.Inf(1)}}, true, "position 0 component 0"},
+		// Ragged rows are not this function's business: it only checks values.
+		{"ragged but binary", [][]float64{{1}, {0, 1, 0}}, false, ""},
+	}
+
+	for _, test := range tests {
+		err := validateInitialBits(test.positions)
+
+		switch {
+		case test.wantErr && err == nil:
+			t.Errorf("%s: validateInitialBits returned no error", test.name)
+		case !test.wantErr && err != nil:
+			t.Errorf("%s: validateInitialBits = %v, want nil", test.name, err)
+		case test.wantErr && !strings.Contains(err.Error(), test.wantIn):
+			t.Errorf("%s: validateInitialBits = %q, want it to name %q", test.name, err, test.wantIn)
+		}
+	}
+}
+
+// TestBinaryPositionsValidRejectsNonBits pins the exported invariant check on
+// both answers, including the values a rounding bug would produce.
+func TestBinaryPositionsValidRejectsNonBits(t *testing.T) {
+	tests := []struct {
+		name     string
+		position []float64
+		want     bool
+	}{
+		{"nil", nil, true},
+		{"empty", []float64{}, true},
+		{"zeros and ones", []float64{0, 1, 1, 0}, true},
+		{"fractional", []float64{0, 0.5, 1}, false},
+		{"just above one", []float64{1, 1.0000001}, false},
+		{"negative zero is zero", []float64{math.Copysign(0, -1), 1}, true},
+		{"negative one", []float64{-1}, false},
+		{"NaN", []float64{math.NaN()}, false},
+		{"infinite", []float64{math.Inf(-1), 0}, false},
+	}
+
+	for _, test := range tests {
+		if got := BinaryPositionsValid(test.position); got != test.want {
+			t.Errorf("%s: BinaryPositionsValid(%v) = %v, want %v",
+				test.name, test.position, got, test.want)
+		}
 	}
 }

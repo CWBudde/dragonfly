@@ -421,3 +421,46 @@ func TestMeanAndStdDev(t *testing.T) {
 		t.Errorf("meanAndStdDev(nil) = %v, %v, want 0, 0", mean, stdDev)
 	}
 }
+
+// TestPrintRecommendations is a smoke test for the stdout table: every ranked
+// recommendation must appear with its variant name, preset and reason.
+func TestPrintRecommendations(t *testing.T) {
+	characteristics := ProblemCharacteristics{
+		Dimensionality: 30,
+		Modality:       Multimodal,
+		Landscape:      Rugged,
+	}
+
+	recommendations := NewAlgorithmSelector().RecommendAlgorithms(characteristics)
+	if len(recommendations) == 0 {
+		t.Fatal("RecommendAlgorithms returned nothing to print")
+	}
+
+	text := captureStdout(t, func() { PrintRecommendations(recommendations) })
+	if text == "" {
+		t.Fatal("PrintRecommendations wrote nothing to stdout")
+	}
+
+	if !strings.Contains(text, "Variant recommendations (ranked by score):") {
+		t.Errorf("PrintRecommendations output has no heading:\n%s", text)
+	}
+
+	for _, recommendation := range recommendations {
+		if !strings.Contains(text, recommendation.Variant.Name()) {
+			t.Errorf("PrintRecommendations output omits variant %q:\n%s",
+				recommendation.Variant.Name(), text)
+		}
+
+		if !strings.Contains(text, recommendation.Reason) {
+			t.Errorf("PrintRecommendations output omits the reason for %q:\n%s",
+				recommendation.Variant.Name(), text)
+		}
+	}
+
+	// An empty slice still prints the frame, so a caller sees "no results"
+	// rather than nothing at all.
+	empty := captureStdout(t, func() { PrintRecommendations(nil) })
+	if !strings.Contains(empty, "Variant recommendations (ranked by score):") {
+		t.Errorf("PrintRecommendations(nil) printed no heading: %q", empty)
+	}
+}

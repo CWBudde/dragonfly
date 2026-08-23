@@ -427,15 +427,17 @@ enforces it.
 
 ## Status
 
-Phases 1–8 of [PLAN.md](PLAN.md) have landed: the three variants, the framework layer,
-deterministic parallelism, constraints, lifecycle and monitoring, the BDD feature files, the
-regression baselines and the benchmark suite. Phase 9 is documentation and Phase 10 is release
+`v0.1.0`. Phases 1–10 of [PLAN.md](PLAN.md) have landed: the three variants, the framework
+layer, deterministic parallelism, constraints, lifecycle and monitoring, the BDD feature
+files, the regression baselines, the benchmark suite, the documentation and the release
 preparation.
 
 **PLAN.md is the source of truth for progress** — read its checkboxes rather than this
-paragraph. Two known defects are recorded there rather than hidden: `Levy(nil)` panics, and
-empty-input handling is inconsistent across the benchmark suite. Neither affects a real
-optimization, where every position has `ProblemSize >= 1` components.
+paragraph, and read the `## [0.1.0]` entry in [CHANGELOG.md](CHANGELOG.md) for the release's
+own list of known limitations. The two that most often surprise a reader: `Levy(nil)` panics
+and empty-input handling is inconsistent across the benchmark suite (neither affects a real
+optimization, where every position has `ProblemSize >= 1` components), and MODA's hypercube
+parameters are this implementation's choices rather than values read off the author's MATLAB.
 
 ## Contributing
 
