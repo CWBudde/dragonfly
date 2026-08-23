@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 	"os"
 	"runtime"
 	"sort"
@@ -45,6 +44,39 @@ type RunResult struct {
 	ConvergenceAt int `json:"convergence_at"`
 }
 
+// MarshalJSON represents an unavailable best cost as null. Failed comparison
+// jobs deliberately carry +Inf internally so they always lose a numeric rank,
+// but encoding/json cannot encode non-finite floats and an invented large
+// finite value would be data corruption.
+func (run RunResult) MarshalJSON() ([]byte, error) {
+	var bestCost *float64
+
+	if isFinite(run.BestCost) {
+		value := run.BestCost
+		bestCost = &value
+	}
+
+	return json.Marshal(runResultJSON{
+		BestCost:      bestCost,
+		Error:         run.Error,
+		ExecutionTime: run.ExecutionTime,
+		Seed:          run.Seed,
+		FuncEvals:     run.FuncEvals,
+		Iterations:    run.Iterations,
+		ConvergenceAt: run.ConvergenceAt,
+	})
+}
+
+type runResultJSON struct {
+	BestCost      *float64 `json:"best_cost"`
+	Error         string   `json:"error,omitempty"`
+	ExecutionTime float64  `json:"execution_seconds"`
+	Seed          int64    `json:"seed"`
+	FuncEvals     int      `json:"function_evaluations"`
+	Iterations    int      `json:"iterations"`
+	ConvergenceAt int      `json:"convergence_at"`
+}
+
 // AlgorithmStatistics aggregates one variant's runs.
 type AlgorithmStatistics struct {
 	Mean   float64 `json:"mean"`
@@ -55,9 +87,11 @@ type AlgorithmStatistics struct {
 
 	// SuccessRate is the percentage of runs that reached the target cost. It is
 	// zero when no target was configured.
-	SuccessRate  float64 `json:"success_rate"`
-	AvgFuncEvals float64 `json:"avg_function_evaluations"`
-	AvgTime      float64 `json:"avg_execution_seconds"`
+	SuccessRate    float64 `json:"success_rate"`
+	AvgFuncEvals   float64 `json:"avg_function_evaluations"`
+	AvgTime        float64 `json:"avg_execution_seconds"`
+	SuccessfulRuns int     `json:"successful_runs"`
+	FailedRuns     int     `json:"failed_runs"`
 }
 
 // WilcoxonResult is a Wilcoxon signed-rank test between two variants.
@@ -79,12 +113,14 @@ type WilcoxonResult struct {
 	// signed-rank sums.
 	WStatistic float64 `json:"w_statistic"`
 
-	// PValue is two-tailed, from the normal approximation to W. It is
-	// unreliable below roughly ten non-tied pairs, where an exact table is
-	// needed; the approximation is reported anyway rather than withheld,
-	// because it is the number a reader can check against a table.
-	PValue      float64 `json:"p_value"`
-	Significant bool    `json:"significant"`
+	// PValue is two-tailed. Samples of at most 20 non-zero pairs use the exact
+	// conditional sign distribution; larger samples use a continuity- and
+	// tie-corrected normal approximation.
+	PValue         float64 `json:"p_value"`
+	AdjustedPValue float64 `json:"adjusted_p_value"`
+	Pairs          int     `json:"pairs"`
+	Significant    bool    `json:"significant"`
+	Available      bool    `json:"available"`
 }
 
 // FriedmanTestResult is a Friedman test across every variant at once: the
@@ -93,33 +129,23 @@ type FriedmanTestResult struct {
 	ChiSquare        float64 `json:"chi_square"`
 	PValue           float64 `json:"p_value"`
 	DegreesOfFreedom int     `json:"degrees_of_freedom"`
+	Blocks           int     `json:"blocks"`
 	Significant      bool    `json:"significant"`
+	Available        bool    `json:"available"`
 }
 
 // ComparisonResult is the complete outcome of a comparison.
 type ComparisonResult struct {
-	// FriedmanResult is nil when fewer than two variants were compared.
-	FriedmanResult *FriedmanTestResult `json:"friedman,omitempty"`
-
+	FriedmanResult *FriedmanTestResult   `json:"friedman,omitempty"`
 	BenchmarkName  string                `json:"benchmark"`
+	Error          string                `json:"error,omitempty"`
 	AlgorithmNames []string              `json:"algorithms"`
 	RunResults     [][]RunResult         `json:"runs"`
 	Statistics     []AlgorithmStatistics `json:"statistics"`
-
-	// Rankings[i] is variant i's rank by mean cost, 1 being best.
-	Rankings []int `json:"rankings"`
-
-	// WilcoxonTests[i][j] is the pairwise test between variants i and j. The
-	// diagonal is left zero.
-	WilcoxonTests [][]WilcoxonResult `json:"wilcoxon"`
-
-	// BestAlgorithm indexes the rank-1 variant, or -1 when the comparison
-	// failed before producing statistics.
-	BestAlgorithm int `json:"best_algorithm"`
-
-	// BaseSeed is the seed run 0 used. Run k of every variant used
-	// BaseSeed + k, so the whole comparison is reproducible from this number.
-	BaseSeed int64 `json:"base_seed"`
+	Rankings       []int                 `json:"rankings"`
+	WilcoxonTests  [][]WilcoxonResult    `json:"wilcoxon"`
+	BestAlgorithm  int                   `json:"best_algorithm"`
+	BaseSeed       int64                 `json:"base_seed"`
 }
 
 // ComparisonRunner runs several variants over the same problem and the same
@@ -140,22 +166,23 @@ type ComparisonRunner struct {
 	// variant is rejected: every statistic here is defined over a scalar cost.
 	Variants []AlgorithmVariant
 
+	// TargetCost is the success threshold used for SuccessRate and
+	// ConvergenceAt. Call WithTarget to enable zero or negative thresholds.
+	TargetCost float64
+
+	// Seed is the base seed run 0 uses.
+	Seed int64
+
 	Runs          int
 	MaxIterations int
-
-	// TargetCost is the success threshold used for SuccessRate and
-	// ConvergenceAt. Zero disables both.
-	TargetCost float64
 
 	// MaxWorkers bounds concurrent runs when Parallel is set. Zero means
 	// runtime.NumCPU().
 	MaxWorkers int
 
-	// Seed is the base seed run 0 uses.
-	Seed int64
-
-	Verbose  bool
-	Parallel bool
+	Verbose   bool
+	Parallel  bool
+	targetSet bool
 }
 
 // NewComparisonRunner creates a runner over every single-objective variant,
@@ -211,6 +238,7 @@ func (cr *ComparisonRunner) WithRuns(runs int) *ComparisonRunner {
 // WithTarget sets the success threshold.
 func (cr *ComparisonRunner) WithTarget(target float64) *ComparisonRunner {
 	cr.TargetCost = target
+	cr.targetSet = true
 
 	return cr
 }
@@ -259,7 +287,17 @@ func (cr *ComparisonRunner) Compare(
 	problemSize int,
 	lower, upper float64,
 ) *ComparisonResult {
-	result, _ := cr.compare(context.Background(), benchmarkName, fn, problemSize, lower, upper, true)
+	result, err := cr.compare(context.Background(), benchmarkName, fn, problemSize, lower, upper, true)
+	if result == nil {
+		result = &ComparisonResult{BenchmarkName: benchmarkName, BestAlgorithm: -1}
+		if cr != nil {
+			result.BaseSeed = cr.Seed
+		}
+	}
+
+	if err != nil {
+		result.Error = err.Error()
+	}
 
 	return result
 }
@@ -275,6 +313,17 @@ func (cr *ComparisonRunner) CompareContext(
 	lower, upper float64,
 ) (*ComparisonResult, error) {
 	return cr.compare(ctx, benchmarkName, fn, problemSize, lower, upper, false)
+}
+
+func (cr *ComparisonRunner) targetEnabled() bool {
+	if cr == nil {
+		return false
+	}
+
+	// A positive directly assigned TargetCost retains the pre-v0.2 behavior.
+	// Zero and negative targets are enabled through WithTarget, which records
+	// the otherwise unrepresentable distinction between zero and "unset".
+	return cr.targetSet || cr.TargetCost > 0
 }
 
 type comparisonJob struct {
@@ -302,7 +351,12 @@ func (cr *ComparisonRunner) compare(
 ) (*ComparisonResult, error) {
 	err := cr.validate(ctx, fn, problemSize, lower, upper)
 	if err != nil {
-		return &ComparisonResult{BenchmarkName: benchmarkName, BestAlgorithm: -1, BaseSeed: cr.Seed}, err
+		return &ComparisonResult{
+			BenchmarkName: benchmarkName,
+			BestAlgorithm: -1,
+			BaseSeed:      cr.Seed,
+			Error:         err.Error(),
+		}, err
 	}
 
 	names, runResults, jobs, err := cr.prepareJobs(fn, problemSize, lower, upper)
@@ -377,7 +431,8 @@ func (cr *ComparisonRunner) applyProblem(
 	config.ObjectiveFunc = fn
 	config.ProblemSize = problemSize
 	config.MaxIterations = cr.MaxIterations
-	config.Rand = rand.New(rand.NewSource(seed))
+	config.Rand = nil
+	config.Seed = &seed
 
 	if !config.UseBinary {
 		config.LowerBound = lower
@@ -590,7 +645,7 @@ func (cr *ComparisonRunner) executeJob(ctx context.Context, job comparisonJob) c
 		}
 	}
 
-	if cr.TargetCost > 0 {
+	if cr.targetEnabled() {
 		for iteration, cost := range result.ConvergenceCurve {
 			if cost <= cr.TargetCost {
 				run.ConvergenceAt = iteration + 1
@@ -616,14 +671,14 @@ func (cr *ComparisonRunner) aggregate(
 
 	statistics := make([]AlgorithmStatistics, count)
 	for i := range count {
-		statistics[i] = calculateAlgorithmStatistics(runResults[i], cr.TargetCost)
+		statistics[i] = calculateAlgorithmStatistics(runResults[i], cr.TargetCost, cr.targetEnabled())
 	}
 
 	rankings := rankAlgorithms(statistics)
-	bestAlgorithm := 0
+	bestAlgorithm := -1
 
 	for i, rank := range rankings {
-		if rank == 1 {
+		if rank == 1 && statistics[i].SuccessfulRuns > 0 {
 			bestAlgorithm = i
 
 			break
@@ -633,13 +688,20 @@ func (cr *ComparisonRunner) aggregate(
 	wilcoxonTests := make([][]WilcoxonResult, count)
 	for i := range count {
 		wilcoxonTests[i] = make([]WilcoxonResult, count)
+	}
 
-		for j := range count {
-			if i != j {
-				wilcoxonTests[i][j] = wilcoxonSignedRankTest(names[i], names[j], runResults[i], runResults[j])
-			}
+	for i := range count {
+		for j := i + 1; j < count; j++ {
+			result := wilcoxonSignedRankTest(names[i], names[j], runResults[i], runResults[j])
+			wilcoxonTests[i][j] = result
+
+			reverse := result
+			reverse.Algorithm1, reverse.Algorithm2 = result.Algorithm2, result.Algorithm1
+			wilcoxonTests[j][i] = reverse
 		}
 	}
+
+	adjustWilcoxonHolm(wilcoxonTests)
 
 	return &ComparisonResult{
 		FriedmanResult: friedmanTest(runResults),
@@ -654,25 +716,90 @@ func (cr *ComparisonRunner) aggregate(
 	}
 }
 
+func adjustWilcoxonHolm(results [][]WilcoxonResult) {
+	type pair struct {
+		p    float64
+		i, j int
+	}
+
+	pairs := make([]pair, 0)
+
+	for i := range results {
+		for j := i + 1; j < len(results[i]); j++ {
+			result := results[i][j]
+			if result.Available {
+				pairs = append(pairs, pair{p: result.PValue, i: i, j: j})
+			}
+		}
+	}
+
+	sort.SliceStable(pairs, func(i, j int) bool { return pairs[i].p < pairs[j].p })
+
+	previous := 0.0
+
+	for rank, item := range pairs {
+		adjusted := min(1, float64(len(pairs)-rank)*item.p)
+		adjusted = max(previous, adjusted)
+		previous = adjusted
+
+		forward := &results[item.i][item.j]
+		reverse := &results[item.j][item.i]
+		forward.AdjustedPValue = adjusted
+		reverse.AdjustedPValue = adjusted
+		forward.Significant = adjusted < significanceAlpha
+
+		reverse.Significant = forward.Significant
+		if !forward.Significant {
+			forward.Winner = wilcoxonTie
+			reverse.Winner = wilcoxonTie
+		}
+	}
+}
+
 // calculateAlgorithmStatistics aggregates one variant's runs.
-func calculateAlgorithmStatistics(runs []RunResult, targetCost float64) AlgorithmStatistics {
+func calculateAlgorithmStatistics(
+	runs []RunResult,
+	targetCost float64,
+	targetEnabled ...bool,
+) AlgorithmStatistics {
 	if len(runs) == 0 {
 		return AlgorithmStatistics{}
 	}
 
-	costs := make([]float64, len(runs))
+	enabled := targetCost > 0
+	if len(targetEnabled) > 0 {
+		enabled = targetEnabled[0]
+	}
+
+	costs := make([]float64, 0, len(runs))
 	funcEvals := 0.0
 	execTime := 0.0
 	successes := 0
+	failures := 0
 
-	for i, run := range runs {
-		costs[i] = run.BestCost
+	for _, run := range runs {
+		if run.Error != "" || !isFinite(run.BestCost) {
+			failures++
+
+			continue
+		}
+
+		costs = append(costs, run.BestCost)
 		funcEvals += float64(run.FuncEvals)
 		execTime += run.ExecutionTime
 
-		if targetCost > 0 && run.BestCost <= targetCost {
+		if enabled && run.BestCost <= targetCost {
 			successes++
 		}
+	}
+
+	statistics := AlgorithmStatistics{
+		SuccessRate:    float64(successes) / float64(len(runs)) * 100.0,
+		SuccessfulRuns: len(costs),
+		FailedRuns:     failures,
+	}
+	if len(costs) == 0 {
+		return statistics
 	}
 
 	mean, stdDev := meanAndStdDev(costs)
@@ -681,16 +808,15 @@ func calculateAlgorithmStatistics(runs []RunResult, targetCost float64) Algorith
 	copy(sorted, costs)
 	sort.Float64s(sorted)
 
-	return AlgorithmStatistics{
-		Mean:         mean,
-		Median:       medianOfSorted(sorted),
-		StdDev:       stdDev,
-		Best:         sorted[0],
-		Worst:        sorted[len(sorted)-1],
-		SuccessRate:  float64(successes) / float64(len(runs)) * 100.0,
-		AvgFuncEvals: funcEvals / float64(len(runs)),
-		AvgTime:      execTime / float64(len(runs)),
-	}
+	statistics.Mean = mean
+	statistics.Median = medianOfSorted(sorted)
+	statistics.StdDev = stdDev
+	statistics.Best = sorted[0]
+	statistics.Worst = sorted[len(sorted)-1]
+	statistics.AvgFuncEvals = funcEvals / float64(len(costs))
+	statistics.AvgTime = execTime / float64(len(costs))
+
+	return statistics
 }
 
 // medianOfSorted returns the median of an already sorted, non-empty slice.
@@ -712,7 +838,14 @@ func rankAlgorithms(statistics []AlgorithmStatistics) []int {
 	}
 
 	sort.SliceStable(indices, func(i, j int) bool {
-		return statistics[indices[i]].Mean < statistics[indices[j]].Mean
+		left := statistics[indices[i]]
+
+		right := statistics[indices[j]]
+		if (left.SuccessfulRuns == 0) != (right.SuccessfulRuns == 0) {
+			return left.SuccessfulRuns > 0
+		}
+
+		return left.Mean < right.Mean
 	})
 
 	rankings := make([]int, len(statistics))
@@ -727,9 +860,9 @@ func rankAlgorithms(statistics []AlgorithmStatistics) []int {
 // paired best costs of two variants.
 //
 // Zero differences are dropped and the ranks recomputed over what remains,
-// which is Wilcoxon's original handling. The p-value comes from the normal
-// approximation to W, with no continuity or tie correction; below roughly ten
-// non-tied pairs it should be read against an exact table instead.
+// which is Wilcoxon's original handling. Small samples use the exact
+// conditional sign distribution; larger samples use a corrected normal
+// approximation.
 func wilcoxonSignedRankTest(name1, name2 string, runs1, runs2 []RunResult) WilcoxonResult {
 	if len(runs1) != len(runs2) {
 		return WilcoxonResult{Algorithm1: name1, Algorithm2: name2, Winner: "Error: unequal sample sizes"}
@@ -739,6 +872,10 @@ func wilcoxonSignedRankTest(name1, name2 string, runs1, runs2 []RunResult) Wilco
 	absolute := make([]float64, 0, len(runs1))
 
 	for i := range runs1 {
+		if !successfulRun(runs1[i]) || !successfulRun(runs2[i]) {
+			continue
+		}
+
 		diff := runs1[i].BestCost - runs2[i].BestCost
 		if math.Abs(diff) > 1e-10 {
 			differences = append(differences, diff)
@@ -747,7 +884,10 @@ func wilcoxonSignedRankTest(name1, name2 string, runs1, runs2 []RunResult) Wilco
 	}
 
 	if len(differences) == 0 {
-		return WilcoxonResult{Algorithm1: name1, Algorithm2: name2, Winner: wilcoxonTie}
+		return WilcoxonResult{
+			Algorithm1: name1, Algorithm2: name2, Winner: wilcoxonTie,
+			PValue: 1, AdjustedPValue: 1, Available: true,
+		}
 	}
 
 	ranks := rankValues(absolute)
@@ -763,11 +903,14 @@ func wilcoxonSignedRankTest(name1, name2 string, runs1, runs2 []RunResult) Wilco
 
 	w := math.Min(wPlus, wMinus)
 
-	n := float64(len(differences))
-	meanW := n * (n + 1) / 4.0
-	stdW := math.Sqrt(n * (n + 1) * (2*n + 1) / 24.0)
-	z := math.Abs(w-meanW) / stdW
-	pValue := 2.0 * (1.0 - normalCDF(z))
+	var pValue float64
+
+	if len(differences) <= 20 {
+		pValue = exactSignedRankPValue(ranks, wPlus)
+	} else {
+		pValue = approximateSignedRankPValue(absolute, wPlus)
+	}
+
 	significant := pValue < significanceAlpha
 
 	// A positive difference means variant 1 cost more on that run, so the
@@ -781,13 +924,83 @@ func wilcoxonSignedRankTest(name1, name2 string, runs1, runs2 []RunResult) Wilco
 	}
 
 	return WilcoxonResult{
-		Algorithm1:  name1,
-		Algorithm2:  name2,
-		Winner:      winner,
-		WStatistic:  w,
-		PValue:      pValue,
-		Significant: significant,
+		Algorithm1:     name1,
+		Algorithm2:     name2,
+		Winner:         winner,
+		WStatistic:     w,
+		PValue:         pValue,
+		AdjustedPValue: pValue,
+		Pairs:          len(differences),
+		Significant:    significant,
+		Available:      true,
 	}
+}
+
+func successfulRun(run RunResult) bool {
+	return run.Error == "" && isFinite(run.BestCost)
+}
+
+// exactSignedRankPValue enumerates the conditional sign distribution for the
+// observed midranks. It remains exact in the presence of tied absolute
+// differences and is cheap for the small samples where the normal
+// approximation is least trustworthy.
+func exactSignedRankPValue(ranks []float64, observedWPlus float64) float64 {
+	totalRank := 0.0
+	for _, rank := range ranks {
+		totalRank += rank
+	}
+
+	mean := totalRank / 2
+	observedDistance := math.Abs(observedWPlus - mean)
+	combinations := uint64(1) << len(ranks)
+	extreme := uint64(0)
+
+	for mask := range combinations {
+		wPlus := 0.0
+
+		for i, rank := range ranks {
+			if mask&(uint64(1)<<i) != 0 {
+				wPlus += rank
+			}
+		}
+
+		if math.Abs(wPlus-mean)+1e-12 >= observedDistance {
+			extreme++
+		}
+	}
+
+	return float64(extreme) / float64(combinations)
+}
+
+func approximateSignedRankPValue(absolute []float64, observedWPlus float64) float64 {
+	n := float64(len(absolute))
+	mean := n * (n + 1) / 4
+	variance := n * (n + 1) * (2*n + 1) / 24
+
+	sorted := append([]float64(nil), absolute...)
+	sort.Float64s(sorted)
+
+	for i := 0; i < len(sorted); {
+		j := i + 1
+		for j < len(sorted) && math.Abs(sorted[j]-sorted[i]) < 1e-10 {
+			j++
+		}
+
+		tie := float64(j - i)
+		if tie > 1 {
+			variance -= (tie*tie*tie - tie) / 48
+		}
+
+		i = j
+	}
+
+	if !(variance > 0) {
+		return 1
+	}
+
+	z := max(0, math.Abs(observedWPlus-mean)-0.5) / math.Sqrt(variance)
+
+	return min(1, 2*(1-normalCDF(z)))
 }
 
 // friedmanTest performs a Friedman test over the per-run ranks of every
@@ -805,17 +1018,47 @@ func friedmanTest(runResults [][]RunResult) *FriedmanTestResult {
 	}
 
 	n := len(runResults[0])
+	for _, runs := range runResults[1:] {
+		n = min(n, len(runs))
+	}
+
+	if n == 0 {
+		return nil
+	}
+
 	rankSums := make([]float64, k)
+	tieTerm := 0.0
+	blocks := 0
 
 	for run := range n {
 		costs := make([]float64, k)
+		complete := true
+
 		for algorithm := range k {
-			costs[algorithm] = runResults[algorithm][run].BestCost
+			observation := runResults[algorithm][run]
+			if !successfulRun(observation) {
+				complete = false
+
+				break
+			}
+
+			costs[algorithm] = observation.BestCost
+		}
+
+		if !complete {
+			continue
 		}
 
 		for algorithm, rank := range rankValues(costs) {
 			rankSums[algorithm] += rank
 		}
+
+		tieTerm += friedmanTieTerm(costs)
+		blocks++
+	}
+
+	if blocks == 0 {
+		return nil
 	}
 
 	sumSquaredRanks := 0.0
@@ -823,8 +1066,17 @@ func friedmanTest(runResults [][]RunResult) *FriedmanTestResult {
 		sumSquaredRanks += rankSum * rankSum
 	}
 
-	nf, kf := float64(n), float64(k)
+	nf, kf := float64(blocks), float64(k)
 	chiSquare := 12.0/(nf*kf*(kf+1))*sumSquaredRanks - 3.0*nf*(kf+1)
+
+	correction := 1 - tieTerm/(nf*kf*(kf*kf-1))
+	if correction > 0 {
+		chiSquare /= correction
+	} else {
+		chiSquare = 0
+	}
+
+	chiSquare = max(0, chiSquare)
 	df := k - 1
 	pValue := chiSquareSurvival(chiSquare, df)
 
@@ -832,8 +1084,33 @@ func friedmanTest(runResults [][]RunResult) *FriedmanTestResult {
 		ChiSquare:        chiSquare,
 		PValue:           pValue,
 		DegreesOfFreedom: df,
+		Blocks:           blocks,
 		Significant:      pValue < significanceAlpha,
+		Available:        true,
 	}
+}
+
+func friedmanTieTerm(values []float64) float64 {
+	sorted := append([]float64(nil), values...)
+	sort.Float64s(sorted)
+
+	term := 0.0
+
+	for i := 0; i < len(sorted); {
+		j := i + 1
+		for j < len(sorted) && math.Abs(sorted[j]-sorted[i]) < 1e-10 {
+			j++
+		}
+
+		tie := float64(j - i)
+		if tie > 1 {
+			term += tie*tie*tie - tie
+		}
+
+		i = j
+	}
+
+	return term
 }
 
 // rankValues ranks values from 1 (smallest) upward, giving tied values their
@@ -1021,6 +1298,7 @@ func comparisonCSVHeader() []string {
 		"benchmark", "variant", "rank", "run", "seed", "best_cost", "function_evaluations",
 		"iterations", "convergence_at", "execution_seconds", "error", "mean", "median", "stddev",
 		"best", "worst", "success_rate", "avg_function_evaluations", "avg_execution_seconds",
+		"successful_runs", "failed_runs",
 	}
 }
 
@@ -1032,7 +1310,13 @@ func comparisonCSVRow(
 	run RunResult,
 	stats AlgorithmStatistics,
 ) []string {
-	number := func(value float64) string { return strconv.FormatFloat(value, 'g', -1, 64) }
+	number := func(value float64) string {
+		if !isFinite(value) {
+			return ""
+		}
+
+		return strconv.FormatFloat(value, 'g', -1, 64)
+	}
 
 	return []string{
 		benchmark, name, strconv.Itoa(rank), strconv.Itoa(runIndex + 1),
@@ -1042,6 +1326,7 @@ func comparisonCSVRow(
 		number(stats.Mean), number(stats.Median), number(stats.StdDev),
 		number(stats.Best), number(stats.Worst), number(stats.SuccessRate),
 		number(stats.AvgFuncEvals), number(stats.AvgTime),
+		strconv.Itoa(stats.SuccessfulRuns), strconv.Itoa(stats.FailedRuns),
 	}
 }
 
@@ -1106,25 +1391,39 @@ func (cr *ComparisonResult) writeSummary(writef func(string, ...any)) {
 	line := strings.Repeat("=", 80)
 	writef("\n%s\nBenchmark Comparison: %s\n%s\n", line, cr.BenchmarkName, line)
 	writef("\nStatistical Summary (base seed %d):\n%s\n", cr.BaseSeed, strings.Repeat("-", 80))
-	writef("%-10s | %8s | %8s | %8s | %8s | %8s | %5s\n",
-		"Variant", "Mean", "Median", "StdDev", "Best", "Worst", "Rank")
+	writef("%-10s | %8s | %8s | %8s | %8s | %8s | %5s | %7s\n",
+		"Variant", "Mean", "Median", "StdDev", "Best", "Worst", "Rank", "OK/Fail")
 	writef("%s\n", strings.Repeat("-", 80))
 
 	for i, name := range cr.AlgorithmNames {
 		stats := cr.Statistics[i]
-		writef("%-10s | %8.2e | %8.2e | %8.2e | %8.2e | %8.2e | %5d\n",
-			name, stats.Mean, stats.Median, stats.StdDev, stats.Best, stats.Worst, cr.Rankings[i])
+		writef("%-10s | %8.2e | %8.2e | %8.2e | %8.2e | %8.2e | %5d | %3d/%-3d\n",
+			name, stats.Mean, stats.Median, stats.StdDev, stats.Best, stats.Worst, cr.Rankings[i],
+			stats.SuccessfulRuns, stats.FailedRuns)
 	}
 
 	writef("%s\n", strings.Repeat("-", 80))
-	writef("\nBest variant: %s (rank 1)\n", cr.AlgorithmNames[cr.BestAlgorithm])
+
+	if cr.BestAlgorithm >= 0 {
+		writef("\nBest variant: %s (rank 1)\n", cr.AlgorithmNames[cr.BestAlgorithm])
+	} else {
+		writef("\nBest variant: unavailable (all runs failed)\n")
+	}
 }
 
 func (cr *ComparisonResult) writeQualityChart(writef func(string, ...any)) {
 	writef("\nRelative quality (lower mean cost is better):\n")
 
 	for _, index := range cr.rankedIndices() {
-		bar, label := cr.qualityBar(cr.Statistics[index].Mean, 24)
+		stats := cr.Statistics[index]
+		if stats.SuccessfulRuns == 0 && stats.FailedRuns > 0 {
+			writef("%2d. %-10s |%-24s| failed/unavailable\n", cr.Rankings[index],
+				cr.AlgorithmNames[index], "")
+
+			continue
+		}
+
+		bar, label := cr.qualityBar(stats.Mean, 24)
 		writef("%2d. %-10s |%-24s| %s\n", cr.Rankings[index], cr.AlgorithmNames[index], bar, label)
 	}
 }
@@ -1141,8 +1440,9 @@ func (cr *ComparisonResult) writeSignificance(writef func(string, ...any)) {
 			if test.Significant {
 				found = true
 
-				writef("%s vs %s: W=%.1f, p=%.4f, winner: %s\n",
-					test.Algorithm1, test.Algorithm2, test.WStatistic, test.PValue, test.Winner)
+				writef("%s vs %s: W=%.1f, p=%.4f, Holm p=%.4f, winner: %s\n",
+					test.Algorithm1, test.Algorithm2, test.WStatistic, test.PValue,
+					test.AdjustedPValue, test.Winner)
 			}
 		}
 	}
@@ -1226,7 +1526,7 @@ func (cr *ComparisonResult) validateShape() error {
 		return errors.New("comparison result fields have inconsistent variant counts")
 	}
 
-	if cr.BestAlgorithm < 0 || cr.BestAlgorithm >= count {
+	if cr.BestAlgorithm < -1 || cr.BestAlgorithm >= count {
 		return fmt.Errorf("comparison best variant index %d is out of range", cr.BestAlgorithm)
 	}
 

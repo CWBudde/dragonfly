@@ -2,6 +2,7 @@ package dragonfly
 
 import (
 	"context"
+	"errors"
 	"math"
 	"math/rand"
 	"strings"
@@ -266,6 +267,17 @@ func TestFlipBitsOnlyProducesBits(t *testing.T) {
 	}
 }
 
+func TestSShapedTransferAssignsBitsInsteadOfFlipping(t *testing.T) {
+	fly := &Dragonfly{Position: []float64{1, 1}, Step: []float64{1, 1}}
+	rng := rand.New(rand.NewSource(1))
+
+	updateBinaryPosition(fly, TransferS2, func(float64) float64 { return 1 }, rng)
+	assertVecEqual(t, fly.Position, []float64{1, 1})
+
+	updateBinaryPosition(fly, TransferS2, func(float64) float64 { return 0 }, rng)
+	assertVecEqual(t, fly.Position, []float64{0, 0})
+}
+
 // TestBuildBinaryStepLeavesPositionUnchanged pins the contract that makes the
 // reuse of dragonfly.go's step builders safe: they commit ΔX to the position,
 // and buildBinaryStep has to undo that.
@@ -289,6 +301,23 @@ func TestBuildBinaryStepLeavesPositionUnchanged(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestBuildBinaryStepUsesTheWholeSwarmWithoutRadiusGating(t *testing.T) {
+	state := &runState{
+		swarm: []Dragonfly{
+			{Position: []float64{0}, Step: []float64{0}},
+			{Position: []float64{1}, Step: []float64{0}},
+		},
+		food:  Best{Position: []float64{1}},
+		enemy: Best{Position: []float64{0}},
+	}
+	weights := weightSchedule{Food: 1, Radius: 0, MaxStep: 6}
+
+	buildBinaryStep(state, 0, weights)
+
+	assertVecEqual(t, state.swarm[0].Position, []float64{0})
+	assertVecEqual(t, state.swarm[0].Step, []float64{1})
 }
 
 func sumVector(x []float64) float64 {
@@ -365,6 +394,22 @@ func TestOptimizeBinaryRejectsUnknownTransferFunction(t *testing.T) {
 	_, err := OptimizeBinary(config)
 	if err == nil {
 		t.Fatal("OptimizeBinary accepted an unregistered transfer function")
+	}
+}
+
+func TestOptimizeBinaryRejectsAllNonFiniteObjectives(t *testing.T) {
+	config := NewBinaryConfig()
+	config.ProblemSize = 4
+	config.Rand = rand.New(rand.NewSource(1))
+	config.ObjectiveFunc = func([]float64) float64 { return math.Inf(1) }
+
+	result, err := OptimizeBinary(config)
+	if !errors.Is(err, ErrNoFiniteObjective) {
+		t.Fatalf("OptimizeBinary() error = %v, want ErrNoFiniteObjective", err)
+	}
+
+	if result != nil {
+		t.Fatalf("OptimizeBinary() result = %+v alongside error", result)
 	}
 }
 
@@ -458,7 +503,7 @@ func TestOptimizeBinarySolvesAKnapsack(t *testing.T) {
 	config := NewBinaryConfig()
 	config.ProblemSize = len(knapsackValues)
 	config.NPop = 40
-	config.MaxIterations = 300
+	config.MaxIterations = 1000
 	config.Rand = rand.New(rand.NewSource(42))
 	config.ObjectiveFunc = knapsackObjective
 

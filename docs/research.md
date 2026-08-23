@@ -105,34 +105,38 @@ MOPSO. Objective space is divided into hypercubes; a leader is drawn from a spar
 one to spread the front out, and archive overflow deletes from a crowded one. MODA borrows this
 mechanism wholesale and adds an enemy drawn from a crowded cell.
 
-Implemented in `multiobjective.go`. The four exponents and the grid resolution are taken from
-this paper, which is why they are flagged as unverified against `MODA.m` below.
+Implemented in `multiobjective.go` as the explicitly named `ArchivePolicyMOPSOGrid` extension.
+It is not the paper or MATLAB default.
 
 ## Verification status of every borrowed constant
 
 This section exists so a reader can tell a paper constant from a judgement call without reading
 the source.
 
-| Constant                                     | Value                         | Status                                                                                                        |
-| -------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Inertia bracket                              | `0.9 → 0.4`                   | Paper. `DA.m`.                                                                                                |
-| Convergence factor `mc`                      | `max(0, 0.1·(1-2t/T))`        | Paper. `DA.m`.                                                                                                |
-| Radius schedule                              | `(ub-lb)/4 + (ub-lb)·(t/T)·2` | Paper. `DA.m`.                                                                                                |
-| Continuous step clamp                        | `(ub-lb)/10`                  | Paper. `DA.m`.                                                                                                |
-| Enemy cutoff                                 | `3T/4`                        | Paper. Note that it never bites at the default, because `mc` is already zero at `T/2`.                        |
-| Enemy term                                   | `X⁻ + X_i`, a sum             | Paper and `DA.m`. Pinned by a hand-computed test.                                                             |
-| Neighbourhood test                           | per-dimension box             | `DA.m`. Pinned by a hand-computed test.                                                                       |
-| Boundary rule                                | wrap, with a step redraw      | Paper and `DA.m`.                                                                                             |
-| Lévy β                                       | `1.5`                         | Paper.                                                                                                        |
-| Lévy σ                                       | `0.6965745026`                | **Verified** against Mantegna (1994) for β = 1.5.                                                             |
-| Lévy scale                                   | `0.01`                        | **Verified** as the DA reference implementation's value.                                                      |
-| BDA default transfer function                | `v3`                          | Paper, §4.                                                                                                    |
-| BDA step clamp `MaxStepRatio`                | `6.0`                         | **This implementation's choice.** The transfer functions saturate by \|Δx\| ≈ 6. Not checked against `BDA.m`. |
-| MODA `β` (food), `γ` (enemy), `δ` (eviction) | `4`, `2`, `2`                 | **Unverified.** MOPSO defaults from Coello Coello et al. (2004). `MODA.m` was not available.                  |
-| MODA `NGrid`, `ArchiveSize`                  | `10`, `100`                   | **Unverified.** Same provenance.                                                                              |
+| Constant                          | Value                         | Status                                                                                       |
+| --------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------- |
+| Inertia bracket                   | `0.9 → 0.4`                   | Paper. `DA.m`.                                                                               |
+| Convergence factor `mc`           | `max(0, 0.1·(1-2t/T))`        | Paper. `DA.m`.                                                                               |
+| Radius schedule                   | `(ub-lb)/4 + (ub-lb)·(t/T)·2` | Paper. `DA.m`.                                                                               |
+| Continuous step clamp             | `(ub-lb)/10`                  | Paper. `DA.m`.                                                                               |
+| Enemy cutoff                      | `3T/4`                        | Paper. Note that it never bites at the default, because `mc` is already zero at `T/2`.       |
+| Enemy term                        | `X⁻ + X_i`, a sum             | Paper and `DA.m`. Pinned by a hand-computed test.                                            |
+| Neighbourhood test                | per-dimension box             | `DA.m`. Pinned by a hand-computed test.                                                      |
+| Boundary rule                     | wrap, with a step redraw      | Paper default. `DA.m` effectively clamps; lifecycle repair remains a documented deviation.   |
+| Lévy β                            | `1.5`                         | Paper.                                                                                       |
+| Lévy σ                            | `0.6965745026`                | **Verified** against Mantegna (1994) for β = 1.5.                                            |
+| Lévy scale                        | `0.01`                        | **Verified** as the DA reference implementation's value.                                     |
+| BDA default transfer function     | `v3`                          | Paper, §4.                                                                                   |
+| BDA step clamp `MaxStepRatio`     | `6.0`                         | **Verified** against official `BDA.m`.                                                       |
+| MODA paper selection              | `1/N` food, `N` enemy         | Paper default, implemented by `ArchivePolicyPaperSegments`.                                  |
+| MODA MATLAB selection             | span/20 density ranking       | **Verified** against `RankingProcess.m`, exposed as `ArchivePolicyMATLABDensity`.            |
+| MODA MOPSO `β`, `γ`, `δ`, `NGrid` | `4`, `2`, `2`, `10`           | Legacy extension only, exposed as `ArchivePolicyMOPSOGrid`; not DA/MODA reference constants. |
+| MODA `ArchiveSize`                | `100`                         | **Verified** against official `MODA.m`.                                                      |
 
-The source says the same thing at each declaration, `PLAN.md` §1.7 records it, and
-`AGENTS.md`'s pitfall list repeats it. Do not cite the unverified rows as settled paper values.
+Official-source SHA-256 checksums used for this audit: `DA.zip`
+`b3123fcea9fb35d2ed0ff123c2241263ceec44b9d9a774da9bd17ef036475ddc`, `BDA.zip`
+`1801dac86c3e8c68cd404904b75ae200815555ceaefccba96cb19598d97cc1c6`, and `MODA.zip`
+`81fc0096d5e552845743ebabc45d5cf81445f604dffc00d7e243b03e9cdf915f`.
 
 ## Deliberate deviations from the reference MATLAB
 

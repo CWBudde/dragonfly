@@ -302,15 +302,17 @@ nil `rng` makes that eviction deterministic.
 
 ## Sentinels and named constants
 
-| Name                                                                           | Value                                                     |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| `WeightAuto`                                                                   | `-1.0` — "use the paper's schedule"                       |
-| `BoundaryWrap` / `BoundaryClamp` / `BoundaryReflect`                           | `"wrap"` / `"clamp"` / `"reflect"`                        |
-| `TerminationMaxIterations` / `TerminationTargetCost` / `TerminationStagnation` | `"maximum_iterations"` / `"target_cost"` / `"stagnation"` |
-| `ConstraintHandlingFeasibility` / `ConstraintHandlingPenalty`                  | `"feasibility"` / `"penalty"`                             |
-| `PenaltyLinear` / `PenaltyQuadratic`                                           | `"linear"` / `"quadratic"`                                |
-| `DefaultLevyBeta` / `DefaultLevyScale`                                         | `1.5` / `0.01`                                            |
-| `DefaultArchiveBeta` / `Gamma` / `Delta` / `NGrid` / `Size`                    | `4` / `2` / `2` / `10` / `100` — **unverified**           |
+| Name                                                                           | Value                                                      |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `WeightAuto`                                                                   | `-1.0` — "use the paper's schedule"                        |
+| `FidelityPaper` / `FidelityMATLAB`                                             | `"paper"` / `"matlab"`                                     |
+| `BoundaryWrap` / `BoundaryClamp` / `BoundaryReflect`                           | `"wrap"` / `"clamp"` / `"reflect"`                         |
+| `TerminationMaxIterations` / `TerminationTargetCost` / `TerminationStagnation` | `"maximum_iterations"` / `"target_cost"` / `"stagnation"`  |
+| `ConstraintHandlingFeasibility` / `ConstraintHandlingPenalty`                  | `"feasibility"` / `"penalty"`                              |
+| `PenaltyLinear` / `PenaltyQuadratic`                                           | `"linear"` / `"quadratic"`                                 |
+| `DefaultLevyBeta` / `DefaultLevyScale`                                         | `1.5` / `0.01`                                             |
+| `ArchivePolicyPaperSegments` / `MATLABDensity` / `MOPSOGrid`                   | paper default / reference compatibility / legacy extension |
+| `DefaultArchiveBeta` / `Gamma` / `Delta` / `NGrid` / `Size`                    | `4` / `2` / `2` / `10` / `100`; exponents are MOPSO-only   |
 
 ## Related documentation
 

@@ -25,6 +25,24 @@ test-race:
 test-full:
     go test -v -timeout 10m ./...
 
+# Enforce the release coverage floor rather than merely generating a report.
+check-coverage min="80":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    go test -timeout 20m -coverprofile=coverage.out -covermode=atomic ./...
+    total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/, "", $3); print $3}')"
+    awk -v total="$total" -v minimum="{{min}}" 'BEGIN { if (total + 0 < minimum + 0) { printf "coverage %.1f%% is below %.1f%%\n", total, minimum > "/dev/stderr"; exit 1 } }'
+    printf 'coverage %.1f%% meets %.1f%% floor\n' "$total" "{{min}}"
+
+# Compile every nested example module, including both native and js/wasm demo paths.
+check-examples:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for module in examples examples/basic examples/comparison examples/constrained examples/feature_selection examples/multiobjective examples/parallel; do
+        (cd "$module" && go build ./...)
+    done
+    just check-wasm-demo
+
 # Run integration tests (Gherkin/Cucumber)
 test-integration:
     go test -v -run TestFeatures
@@ -63,7 +81,7 @@ setup-deps:
     command -v treefmt >/dev/null 2>&1 || { echo "Installing treefmt..."; curl -fsSL https://github.com/numtide/treefmt/releases/download/v2.5.0/treefmt_2.5.0_linux_amd64.tar.gz | sudo tar -C /usr/local/bin -xz treefmt; }
 
     # golangci-lint v2 (linter + formatter runner)
-    command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint..."; go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest; }
+    command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint..."; go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4; }
 
     # Go formatters
     command -v gofumpt >/dev/null 2>&1 || { echo "Installing gofumpt..."; go install mvdan.cc/gofumpt@latest; }
@@ -173,10 +191,10 @@ check: check-formatted check-tidy lint test
 check-race: check-formatted check-tidy lint test-race
 
 # Full CI pipeline
-ci: verify check
+ci: verify check check-coverage check-examples
 
 # Full CI pipeline with race detection
-ci-race: verify check-race
+ci-race: verify check-race check-coverage check-examples
 
 # Profile CPU performance
 profile-cpu:

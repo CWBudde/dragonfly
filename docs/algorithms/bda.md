@@ -11,18 +11,13 @@ Applications_, 27(4), 1053–1073.** — §4 introduces BDA.
 The V-shaped and S-shaped transfer-function families BDA draws on are the standard ones from
 the binary-PSO literature that the paper builds on.
 
-Reference implementation: the author's `BDA.m`. It is **not available to this repository**, so
-one BDA constant here is this implementation's judgement rather than a quoted value — see
-[The step clamp](#the-step-clamp-is-not-a-paper-constant) below.
+Reference implementation: the author's official `BDA.m`, verified during the Phase 11 audit.
 
 ## Overview
 
-BDA differs from [standard DA](standard-da.md) in the position update and nowhere else.
-
-`ΔX` is built by the same five primitives, the same two-branch gating and the same clamp the
-continuous variant uses — `binary.go` calls straight into the shared step builders in
-`parallel_phases.go`. The continuous position update is then discarded, and each bit is flipped
-with a probability read off the step by a **transfer function**:
+BDA uses the same five primitives but treats every other dragonfly as a neighbor and applies an
+unconditional full step. `ΔX` is then passed through a **transfer function** rather than added
+to the position:
 
 ```
 T(Δx_j) = |Δx_j / sqrt(Δx_j² + 1)|              the paper's default, v3
@@ -40,10 +35,10 @@ can assert the invariant too.
 
 ### Transfer functions
 
-Eight are registered. The V-shaped family is symmetric about zero — it reads the magnitude of a
-step and flips regardless of sign. The S-shaped family is monotone increasing — a positive step
-pushes a bit towards one and a negative step towards zero, in the sense that the flip
-probability crosses one half at zero.
+Eight are registered. The V-shaped family is symmetric about zero: a successful draw
+**complements** the current bit. The S-shaped family is monotone increasing: it **assigns one**
+when the draw is below `T(Δx)` and zero otherwise. Thus a positive step pushes toward one and a
+negative step toward zero.
 
 | Name | Form                          | `T(0)` | `T(1)` | `T(6)` |
 | ---- | ----------------------------- | -----: | -----: | -----: |
@@ -61,14 +56,12 @@ every registered name in this stable order. An unknown name is an error, never a
 fallback to the default — a misspelling in a JSON configuration would otherwise run a different
 algorithm than the one you wrote.
 
-### The step clamp is not a paper constant
+### The step clamp
 
 `NewBinaryConfig` sets `MaxStepRatio = 6.0`, which on the unit search box makes `ΔX_max = 6`.
-This is **this implementation's choice, not a value read off `BDA.m`**. The reasoning is
-written out in `config.go`: the transfer functions saturate by `|Δx| ≈ 6`, so clamping there is
-what makes the whole range of flip probabilities reachable. The continuous default of `0.1`
-would cap every flip probability at about a tenth and freeze the swarm. Treat `6.0` as a
-working default until someone checks it against the reference source.
+The `±6` clamp is verified against the official `BDA.m`. It also has the expected numerical
+effect: the transfer functions saturate by `|Δx| ≈ 6`, while the continuous default of `0.1`
+would cap every flip probability at about a tenth and freeze the swarm.
 
 ### What binary mode ignores
 
@@ -80,11 +73,8 @@ Two continuous-only mechanisms are deliberately switched off, both explained in
   overwrite the very step the next bit-flip decision is made from. The field is left alone
   rather than validated away, so one `Config` can be handed to both entry points.
 - **`Config.UseLevyWalk` and the Lévy branch.** A Lévy walk is a multiplicative displacement of
-  a real-valued position and has no binary counterpart. The food-out-of-range branch is
-  therefore the local-swarming step for _every_ dragonfly, isolated or not. `swarm.go`'s
-  documented empty-neighbourhood fallbacks reduce that step, for an isolated dragonfly, to a
-  decaying carry of `ΔX` — which the transfer function reads as a diminishing random flip
-  probability. That is the exploration role the Lévy walk plays in the continuous variant.
+  a real-valued position and has no binary counterpart. BDA treats every other dragonfly as a
+  neighbor and always computes the full five-factor step before applying its transfer function.
 
 ### What binary mode enforces
 
@@ -94,16 +84,15 @@ the neighbourhood radius. A seeded initial population must be 0/1-valued as well
 silently would hand you a different starting swarm than the one you wrote.
 
 Initial positions are fair coin flips, not uniform draws from `[0, 1]` — the position space is
-the corners of the unit cube. Initial steps _are_ drawn uniformly from `[0, 1]`, so the first
-iteration's flip probabilities are `T` of a real value rather than `T(0)`.
+the corners of the unit cube. Paper mode draws initial steps uniformly from `[0,1]`; MATLAB
+mode reproduces `BDA.m`'s binary initial steps.
 
 ## Key Innovations
 
 1. **The step becomes a probability, not a displacement.** This is the whole variant. It also
    means the step clamp is now the parameter that controls how erratic the search is.
-2. **Nothing else changes.** BDA reuses DA's neighbourhood scan, its five primitives, its
-   two-branch gating and its weight schedules. Every fidelity property proved for DA holds
-   here; `binary.go` contains no second copy of the step rules.
+2. **One whole-swarm update.** Every `i != j` is a neighbor and every iteration applies the
+   unconditional five-factor step. BDA does not reuse continuous DA's radius or Lévy branches.
 3. **Two transfer-function families with genuinely different behaviour.** The V family is
    sign-blind and flips on magnitude alone; the S family biases towards one or zero. On
    problems where "how many bits should be set" is not known in advance, the V family's
@@ -226,11 +215,10 @@ Lower is better; zero means every bit was set.
 | `s3`     |      4 | 3.80 |     4 |
 | `s4`     |      4 | 4.07 |     5 |
 
-The V family solves this problem outright; the S family does not, and gets steadily worse as
-its slope flattens from `s1` to `s4`. The reason is structural rather than incidental: an
-S-shaped function has `T(0) = 0.5`, so a settled bit whose step has decayed to zero still flips
-half the time. A V-shaped function has `T(0) = 0`, and a settled bit stays settled. Unless you
-have a specific reason to want direction-sensitive flipping, stay on the V family.
+These values were measured from v0.1, which incorrectly complemented bits for both transfer
+families and reused continuous DA's radius branches. They are retained only as historical
+provenance and must not be treated as performance claims for the corrected BDA. A new
+multi-seed transfer-family study remains open in `PLAN.md`.
 
 Cost, on Linux/amd64 with Go 1.26.0 on an AMD Ryzen 5 4600H: 30 bits, 50 iterations, `NPop` 30
 costs 17.3 ms (`v3`) to 21.9 ms (`s4`) per run. The spread across the eight is about 25%, all
@@ -263,31 +251,27 @@ BDA profiling anchor, is 45.8 ms per run at 30 bits over 100 iterations with `NP
    good one. `v2` (tanh) saturates faster and makes the search more decisive; `v4` (arctan)
    saturates slowest and keeps more churn late in the run. Switch to the S family only when the
    sign of the step carries meaning for your encoding.
-2. **`MaxStepRatio` second, and treat it as the exploration dial.** It is the one parameter
-   whose default here is not from the paper. Lower it towards `1.0` to make the search calmer —
+2. **`MaxStepRatio` second, and treat it as the exploration dial.** The verified `±6` default
+   follows `BDA.m`. Lower it towards `1.0` to make the search calmer —
    the flip probability then tops out around `T(1) ≈ 0.71` for `v3` instead of `0.99`. Raise it
    above `6` and you gain almost nothing, because the transfer functions are already saturated.
-3. **`NPop` and `MaxIterations` third.** Same trade-off as DA, and the same `O(n²·d)` neighbour
-   scan.
-4. **`RadiusGrowth`.** On a binary problem the "distance" between two dragonflies is a Hamming
-   distance in disguise, and the box is only one unit wide, so the default radius schedule
-   already reaches the whole space early. Lower it if the swarm converges to one bit string too
-   fast.
-5. **Weights.** As with DA, pin one at a time and leave the rest on their schedules. Pinning
+3. **`NPop` and `MaxIterations` third.** BDA scans the whole swarm, so the step remains
+   `O(n²·d)`.
+4. **Weights.** As with DA, pin one at a time and leave the rest on their schedules. Pinning
    `EnemyWeight = 0` is the cheapest ablation available.
 
 ## Compared with the Other Variants
 
-| Aspect          | BDA                          | Standard DA            | MODA                   |
-| --------------- | ---------------------------- | ---------------------- | ---------------------- |
-| Position space  | corners of the unit cube     | a real box             | a real box             |
-| Position update | per-bit flip through `T(Δx)` | `X += ΔX`              | `X += ΔX`              |
-| Step meaning    | flip probability             | displacement           | displacement           |
-| Bounds          | fixed at `[0, 1]`            | caller's               | caller's               |
-| Boundary rule   | not applicable               | wrap / clamp / reflect | wrap / clamp / reflect |
-| Lévy walk       | none                         | yes                    | yes                    |
-| Result          | one bit string               | one position           | a Pareto archive       |
-| Overhead        | 1.0x                         | 1.0x (baseline)        | about 1.2x             |
+| Aspect          | BDA                         | Standard DA            | MODA                   |
+| --------------- | --------------------------- | ---------------------- | ---------------------- |
+| Position space  | corners of the unit cube    | a real box             | a real box             |
+| Position update | V complement / S assignment | `X += ΔX`              | `X += ΔX`              |
+| Step meaning    | flip probability            | displacement           | displacement           |
+| Bounds          | fixed at `[0, 1]`           | caller's               | caller's               |
+| Boundary rule   | not applicable              | wrap / clamp / reflect | wrap / clamp / reflect |
+| Lévy walk       | none                        | yes                    | yes                    |
+| Result          | one bit string              | one position           | a Pareto archive       |
+| Overhead        | 1.0x                        | 1.0x (baseline)        | about 1.2x             |
 
 ## Related Documentation
 

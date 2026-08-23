@@ -25,6 +25,12 @@ const (
 var ErrMultiObjectiveVariant = errors.New(
 	"multi-objective variant has no single-objective result; use RunMultiObjective")
 
+// ErrMultiObjectiveBuilder is returned when the single-objective fluent
+// builder is asked to configure MODA. MODA needs MultiObjectiveConfig and its
+// own objective signature, so producing a Config here would be unusable.
+var ErrMultiObjectiveBuilder = errors.New(
+	"the fluent builder only supports single-objective variants; use MODAVariant.GetMultiObjectiveConfig")
+
 // ErrBinaryConfigOnContinuousVariant is returned by DAVariant.Run when it is
 // handed a configuration with UseBinary set.
 //
@@ -471,6 +477,10 @@ func NewBuilder(variantName string) *VariantBuilder {
 func NewBuilderFromVariant(variant AlgorithmVariant) *VariantBuilder {
 	if variant == nil {
 		return &VariantBuilder{err: errors.New("variant cannot be nil")}
+	}
+
+	if variant.IsMultiObjective() {
+		return &VariantBuilder{variant: variant, err: ErrMultiObjectiveBuilder}
 	}
 
 	return &VariantBuilder{variant: variant, config: variant.GetConfig()}

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Paper-default and MATLAB compatibility modes (`Config.FidelityMode`), plus named MODA
+  archive policies for paper segments, MATLAB density ranking and the released MOPSO-grid
+  extension.
+- Explicit reproducibility metadata through `Config.Seed`, `Result.SeedKnown` and
+  `MultiObjectiveResult.SeedKnown`.
+- Exact small-sample Wilcoxon tests, tie corrections, Holm-adjusted pairwise p-values and
+  failed-run accounting in comparison reports.
+
 - A WebAssembly browser demo in `examples/wasm-demo`, published to GitHub Pages by
   `.github/workflows/wasm-demo-pages.yml` and built by `scripts/build-wasm-demo.sh`. Four
   pages — a Swarm Lab that colours each dragonfly by which branch of the two-branch step
@@ -56,6 +64,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   goroutine, so a seeded run is bit-identical with parallelism on or off.
 
 ### Changed
+
+- Corrected DA neighborhood exclusion, enemy-radius gating, schedule indexing, reflection,
+  cancellation and non-finite-objective handling. Paper mode and MATLAB mode now have
+  separately tested step transitions where their operators disagree.
+- Corrected BDA to use the whole swarm and an unconditional five-factor step; S-shaped
+  transfers now assign a sampled bit while V-shaped transfers complement the current bit.
+- MODA now defaults to the paper's `1/N` and `N` archive selection, validates objective
+  arity and numeric values before mutation, copies callback results, uses stable roulette
+  arithmetic and rejects unsupported shared settings.
+- Configuration loading rejects unknown fields and trailing JSON. Report exports now use an
+  atomic same-directory replacement and serialize unavailable comparison costs as `null`.
+- CI pins golangci-lint, tests the minimum and current Go releases, enforces 80% coverage and
+  builds every nested example module and the WebAssembly target.
+
+### Fixed
+
+- Prevented synthetic unevaluated incumbents, false seed claims, comparison failures entering
+  statistical samples, malformed Pareto archive exports and unusable MODA builder/selector
+  recommendations.
 
 - Pareto archive maintenance is substantially cheaper, with the archive contents
   bit-identical. `updateGrid` reuses each member's index array and skips the reassignment

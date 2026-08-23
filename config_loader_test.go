@@ -234,6 +234,42 @@ func TestLoadConfigMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsUnknownFieldsAndTrailingValues(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want string
+	}{
+		{
+			name: "unknown field",
+			data: `{"problem_size": 2, "lower_bound": -1, "upper_bound": 1, "npop": 4, ` +
+				`"max_iterations": 2, "enable_parallel_typo": true}`,
+			want: "unknown field",
+		},
+		{
+			name: "trailing JSON value",
+			data: `{}` + "\n" + `{}`,
+			want: "trailing data",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+
+			writeErr := os.WriteFile(path, []byte(test.data), 0o600)
+			if writeErr != nil {
+				t.Fatalf("WriteFile() error = %v", writeErr)
+			}
+
+			_, err := LoadConfig(path)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("LoadConfig() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestLoadConfigRejectsInvalidContents(t *testing.T) {
 	config := newLoaderTestConfig()
 	config.LowerBound = 10

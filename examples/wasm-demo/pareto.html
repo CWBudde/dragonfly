@@ -211,10 +211,9 @@
         The grid is drawn from the archive's own extent, read through
         <code>ParetoArchive.GridBounds()</code>, and each point's cell comes
         from the <code>GridIndex</code> the archive assigned. Nothing here
-        re-derives which cell a point falls in. The archive's roulette exponents
-        (β, γ, δ) are recalled from the MOPSO lineage the paper borrows from
-        rather than read off the author's <code>MODA.m</code>, and the library
-        documents them as unverified; treat the defaults as defaults.
+        re-derives which cell a point falls in. Paper mode uses 1/N and N;
+        MATLAB mode uses the reference density ranking. The β, γ and δ
+        exponents belong only to the explicitly selected legacy MOPSO policy.
       </p>
     </aside>
 

@@ -25,12 +25,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math"
 	"math/rand"
 	"sort"
 	"strconv"
-	"time"
 )
 
 // MultiObjectiveFunction represents a multi-objective optimization function.
@@ -175,20 +175,37 @@ func equalObjectives(a, b []float64) bool {
 	return true
 }
 
-// Default hypercube-grid parameters.
-//
-// UNVERIFIED. These are the MOPSO defaults -- Coello Coello, Pulido & Lechuga
-// (2004), the lineage MODA borrows its archive from -- and they have NOT been
-// read off the author's MODA.m, which is not available to this repository. Do
-// not cite them as settled values from the DA paper. Treat them as the working
-// defaults they are until someone checks them against the reference source; see
-// PLAN.md §1.7 and CLAUDE.md "Common Pitfalls" #5.
+// ArchivePolicy selects the archive diversity mechanism used by MODA.
+type ArchivePolicy string
+
 const (
-	// DefaultArchiveBeta is the exponent of the food-selection weight 1/N^beta.
+	// ArchivePolicyPaperSegments partitions objective space into equal segments
+	// and weights them by 1/N for food and N for enemy/overflow selection.
+	ArchivePolicyPaperSegments ArchivePolicy = "paper_segments"
+	// ArchivePolicyMATLABDensity reproduces MODA.m's per-solution density rank:
+	// neighbors are points within one twentieth of every objective span.
+	ArchivePolicyMATLABDensity ArchivePolicy = "matlab_density"
+	// ArchivePolicyMOPSOGrid retains v0.1.0's configurable exponent-weighted
+	// hypercube grid as an explicitly selected extension.
+	ArchivePolicyMOPSOGrid ArchivePolicy = "mopso_grid"
+
+	// ArchivePolicyPaper, ArchivePolicyMATLAB, and ArchivePolicyMOPSO are short
+	// aliases that keep configuration code readable.
+	ArchivePolicyPaper  = ArchivePolicyPaperSegments
+	ArchivePolicyMATLAB = ArchivePolicyMATLABDensity
+	ArchivePolicyMOPSO  = ArchivePolicyMOPSOGrid
+)
+
+// DefaultArchiveBeta, Gamma and Delta are retained as the v0.1.0 MOPSO-grid
+// extension defaults. Paper selection does not consult them: the constant c in
+// c/N and N/c cancels during roulette normalization, leaving fixed exponents of
+// one.
+const (
+	// DefaultArchiveBeta is the MOPSO food-selection exponent.
 	DefaultArchiveBeta = 4.0
-	// DefaultArchiveGamma is the exponent of the enemy-selection weight N^gamma.
+	// DefaultArchiveGamma is the MOPSO enemy-selection exponent.
 	DefaultArchiveGamma = 2.0
-	// DefaultArchiveDelta is the exponent of the overflow-deletion weight N^delta.
+	// DefaultArchiveDelta is the MOPSO overflow-deletion exponent.
 	DefaultArchiveDelta = 2.0
 	// DefaultArchiveNGrid is the number of hypercubes per objective.
 	DefaultArchiveNGrid = 10
@@ -218,49 +235,25 @@ const (
 //
 // The archive is not safe for concurrent use.
 type ParetoArchive struct {
-	// Solutions is the archive contents, in insertion order. Every member is
-	// mutually non-dominated with every other; that invariant is restored by
-	// each mutation, not merely at the end of a run.
-	//
-	// A mutation compacts the survivors in place rather than allocating a fresh
-	// slice, so a slice held across one is not a snapshot of the archive as it
-	// was. Read the field again after any Add or UpdateFromPopulation, or copy
-	// it if an older view is needed.
-	Solutions []*ParetoSolution
-
-	// lowerBounds and upperBounds are the per-objective extent of the current
-	// contents, and therefore the extent of the grid. They move whenever the
-	// archive does.
+	Policy      ArchivePolicy
+	Solutions   []*ParetoSolution
 	lowerBounds []float64
 	upperBounds []float64
-
-	// cellBuf, memberBuf and orderBuf are occupiedCells' scratch space. They
-	// are reused across calls, which is what keeps grouping the archive by
-	// hypercube -- something every insert and every selection does -- free of
-	// allocation. See occupiedCells for the lifetime this imposes on its
-	// result.
-	cellBuf   []hypercubeCell
-	memberBuf []int
-	countBuf  []int
-
-	// Beta, Gamma and Delta are the roulette exponents; see the UNVERIFIED note
-	// on DefaultArchiveBeta.
-	Beta  float64
-	Gamma float64
-	Delta float64
-
-	// MaxSize is the capacity. A successful insert past capacity evicts a member
-	// of the most crowded hypercube, so the archive never exceeds it.
-	MaxSize int
-	// NGrid is the number of hypercubes per objective.
-	NGrid int
+	cellBuf     []hypercubeCell
+	memberBuf   []int
+	countBuf    []int
+	Beta        float64
+	Gamma       float64
+	Delta       float64
+	MaxSize     int
+	NGrid       int
 }
 
 // NewParetoArchive creates an archive of the given capacity with the default
 // grid parameters. A non-positive capacity falls back to DefaultArchiveSize.
 func NewParetoArchive(maxSize int) *ParetoArchive {
-	return NewParetoArchiveWithGrid(maxSize, DefaultArchiveNGrid,
-		DefaultArchiveBeta, DefaultArchiveGamma, DefaultArchiveDelta)
+	return newParetoArchive(maxSize, DefaultArchiveNGrid,
+		DefaultArchiveBeta, DefaultArchiveGamma, DefaultArchiveDelta, ArchivePolicyPaperSegments)
 }
 
 // NewParetoArchiveWithGrid creates an archive with explicit grid parameters.
@@ -270,6 +263,14 @@ func NewParetoArchive(maxSize int) *ParetoArchive {
 // preference the roulette draw exists to express, which is never what a caller
 // means.
 func NewParetoArchiveWithGrid(maxSize, nGrid int, beta, gamma, delta float64) *ParetoArchive {
+	return newParetoArchive(maxSize, nGrid, beta, gamma, delta, ArchivePolicyMOPSOGrid)
+}
+
+func newParetoArchive(
+	maxSize, nGrid int,
+	beta, gamma, delta float64,
+	policy ArchivePolicy,
+) *ParetoArchive {
 	if maxSize <= 0 {
 		maxSize = DefaultArchiveSize
 	}
@@ -283,6 +284,7 @@ func NewParetoArchiveWithGrid(maxSize, nGrid int, beta, gamma, delta float64) *P
 		Beta:      nonNegative(beta),
 		Gamma:     nonNegative(gamma),
 		Delta:     nonNegative(delta),
+		Policy:    policy,
 		MaxSize:   maxSize,
 		NGrid:     nGrid,
 	}
@@ -342,15 +344,41 @@ func (pa *ParetoArchive) GridBounds() ([]float64, []float64) {
 // member of the most crowded cell), which keeps the archive usable outside a
 // seeded run.
 func (pa *ParetoArchive) Add(solution *ParetoSolution, rng *rand.Rand) bool {
-	if pa == nil || solution == nil || len(solution.ObjectiveValues) == 0 {
+	if pa == nil || !validParetoSolution(solution, 0) {
 		return false
 	}
 
+	if pa.MaxSize <= 0 {
+		pa.MaxSize = DefaultArchiveSize
+	}
+
+	if pa.NGrid <= 0 {
+		pa.NGrid = DefaultArchiveNGrid
+	}
+
+	expectedObjectives := len(solution.ObjectiveValues)
+	if len(pa.Solutions) > 0 {
+		if !validParetoSolution(pa.Solutions[0], 0) {
+			return false
+		}
+
+		expectedObjectives = len(pa.Solutions[0].ObjectiveValues)
+		if len(solution.ObjectiveValues) != expectedObjectives {
+			return false
+		}
+	}
+
 	for _, existing := range pa.Solutions {
+		if !validParetoSolution(existing, expectedObjectives) {
+			return false
+		}
+
 		if duplicateSolutions(existing, solution) || constrainedDominates(existing, solution) {
 			return false
 		}
 	}
+
+	before := append([]*ParetoSolution(nil), pa.Solutions...)
 
 	// The survivors are compacted in place: the write index never overtakes the
 	// read index, so the archive keeps its own backing array and an accepted
@@ -378,6 +406,39 @@ func (pa *ParetoArchive) Add(solution *ParetoSolution, rng *rand.Rand) bool {
 
 	pa.updateGrid()
 	pa.evictOverflow(rng)
+
+	return !sameSolutionSequence(before, pa.Solutions)
+}
+
+func validParetoSolution(solution *ParetoSolution, objectives int) bool {
+	if solution == nil || len(solution.ObjectiveValues) == 0 ||
+		!isFinite(solution.ConstraintViolation) || solution.ConstraintViolation < 0 {
+		return false
+	}
+
+	if objectives > 0 && len(solution.ObjectiveValues) != objectives {
+		return false
+	}
+
+	for _, value := range solution.ObjectiveValues {
+		if !isFinite(value) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func sameSolutionSequence(first, second []*ParetoSolution) bool {
+	if len(first) != len(second) {
+		return false
+	}
+
+	for i := range first {
+		if first[i] != second[i] {
+			return false
+		}
+	}
 
 	return true
 }
@@ -408,7 +469,16 @@ func (pa *ParetoArchive) IsNonDominated() bool {
 		return true
 	}
 
+	expectedObjectives := 0
+	if len(pa.Solutions) > 0 && pa.Solutions[0] != nil {
+		expectedObjectives = len(pa.Solutions[0].ObjectiveValues)
+	}
+
 	for i, first := range pa.Solutions {
+		if !validParetoSolution(first, expectedObjectives) {
+			return false
+		}
+
 		for j, second := range pa.Solutions {
 			if i != j && constrainedDominates(first, second) {
 				return false
@@ -525,7 +595,15 @@ func (pa *ParetoArchive) gridIndexInto(dst []int, values []float64) []int {
 			continue
 		}
 
-		bin := int(math.Floor((value - pa.lowerBounds[m]) / span * float64(pa.NGrid)))
+		normalized := (value - pa.lowerBounds[m]) / span
+		if !isFinite(span) {
+			// Halving before subtraction preserves the ratio when two finite
+			// opposite-sign extrema have a span larger than MaxFloat64.
+			normalized = (value/2 - pa.lowerBounds[m]/2) /
+				(pa.upperBounds[m]/2 - pa.lowerBounds[m]/2)
+		}
+
+		bin := int(math.Floor(normalized * float64(pa.NGrid)))
 		index[m] = min(max(bin, 0), pa.NGrid-1)
 	}
 
@@ -537,13 +615,36 @@ func (pa *ParetoArchive) gridIndexInto(dst []int, values []float64) []int {
 func (pa *ParetoArchive) gridKeyFor(index []int) int {
 	key := 0
 	stride := 1
+	maxInt := int(^uint(0) >> 1)
 
 	for _, component := range index {
+		if component < 0 || component >= pa.NGrid ||
+			component > (maxInt-key)/stride ||
+			stride > maxInt/pa.NGrid {
+			return hashedGridKey(index)
+		}
+
 		key += component * stride
 		stride *= pa.NGrid
 	}
 
 	return key
+}
+
+// hashedGridKey provides a deterministic negative key when base-NGrid
+// flattening would overflow int. Negative keys deliberately bypass counting
+// sort; sortingOrder disambiguates the vanishingly unlikely hash collision by
+// comparing the full GridIndex.
+func hashedGridKey(index []int) int {
+	hasher := fnv.New64a()
+	for _, component := range index {
+		_, _ = io.WriteString(hasher, strconv.Itoa(component))
+		_, _ = hasher.Write([]byte{0})
+	}
+
+	maxInt := uint64(^uint(0) >> 1)
+
+	return -int(hasher.Sum64()&maxInt) - 1
 }
 
 // hypercubeCell is one occupied cell of the grid: its flattened key and the
@@ -579,7 +680,11 @@ func (pa *ParetoArchive) occupiedCells() []hypercubeCell {
 		key := pa.Solutions[members[start]].GridKey
 
 		end := start + 1
-		for end < count && pa.Solutions[members[end]].GridKey == key {
+		for end < count && pa.Solutions[members[end]].GridKey == key &&
+			equalGridIndex(
+				pa.Solutions[members[start]].GridIndex,
+				pa.Solutions[members[end]].GridIndex,
+			) {
 			end++
 		}
 
@@ -652,6 +757,10 @@ func (pa *ParetoArchive) keySpace() (int, bool) {
 	keyRange := 1
 
 	for range len(pa.Solutions[0].ObjectiveValues) {
+		if keyRange > budget/pa.NGrid {
+			return 0, false
+		}
+
 		keyRange *= pa.NGrid
 		if keyRange > budget {
 			return 0, false
@@ -675,8 +784,41 @@ func (pa *ParetoArchive) sortingOrder(members []int) {
 			return key < pa.Solutions[right].GridKey
 		}
 
+		if comparison := compareGridIndex(
+			pa.Solutions[left].GridIndex,
+			pa.Solutions[right].GridIndex,
+		); comparison != 0 {
+			return comparison < 0
+		}
+
 		return left < right
 	})
+}
+
+func equalGridIndex(first, second []int) bool {
+	return compareGridIndex(first, second) == 0
+}
+
+func compareGridIndex(first, second []int) int {
+	for i := range min(len(first), len(second)) {
+		if first[i] < second[i] {
+			return -1
+		}
+
+		if first[i] > second[i] {
+			return 1
+		}
+	}
+
+	if len(first) < len(second) {
+		return -1
+	}
+
+	if len(first) > len(second) {
+		return 1
+	}
+
+	return 0
 }
 
 // growInts returns a slice of at least the given length, reusing the buffer
@@ -696,8 +838,17 @@ func growInts(buf []int, length int) []int {
 //
 // Returns nil for an empty archive.
 func (pa *ParetoArchive) selectSparse(rng *rand.Rand) *ParetoSolution {
+	if pa != nil && pa.effectivePolicy() == ArchivePolicyMATLABDensity {
+		return pa.selectByDensity(true, rng)
+	}
+
+	exponent := 1.0
+	if pa != nil && pa.effectivePolicy() == ArchivePolicyMOPSOGrid {
+		exponent = pa.Beta
+	}
+
 	return pa.selectFromCells(func(count float64) float64 {
-		return 1 / math.Pow(count, pa.Beta)
+		return -exponent * math.Log(count)
 	}, rng)
 }
 
@@ -707,15 +858,24 @@ func (pa *ParetoArchive) selectSparse(rng *rand.Rand) *ParetoSolution {
 //
 // Returns nil for an empty archive.
 func (pa *ParetoArchive) selectCrowded(rng *rand.Rand) *ParetoSolution {
+	if pa != nil && pa.effectivePolicy() == ArchivePolicyMATLABDensity {
+		return pa.selectByDensity(false, rng)
+	}
+
+	exponent := 1.0
+	if pa != nil && pa.effectivePolicy() == ArchivePolicyMOPSOGrid {
+		exponent = pa.Gamma
+	}
+
 	return pa.selectFromCells(func(count float64) float64 {
-		return math.Pow(count, pa.Gamma)
+		return exponent * math.Log(count)
 	}, rng)
 }
 
 // selectFromCells performs the two-stage draw both selections share: a roulette
 // over the occupied cells under the given weight function, then a uniform draw
 // among the members of the chosen cell.
-func (pa *ParetoArchive) selectFromCells(weight func(count float64) float64, rng *rand.Rand) *ParetoSolution {
+func (pa *ParetoArchive) selectFromCells(logWeight func(count float64) float64, rng *rand.Rand) *ParetoSolution {
 	if pa == nil || len(pa.Solutions) == 0 {
 		return nil
 	}
@@ -724,10 +884,10 @@ func (pa *ParetoArchive) selectFromCells(weight func(count float64) float64, rng
 	weights := make([]float64, len(cells))
 
 	for i, cell := range cells {
-		weights[i] = weight(float64(len(cell.Members)))
+		weights[i] = logWeight(float64(len(cell.Members)))
 	}
 
-	chosen := cells[rouletteIndex(weights, rng)]
+	chosen := cells[rouletteLogIndex(weights, rng)]
 	member := chosen.Members[0]
 
 	if rng != nil && len(chosen.Members) > 1 {
@@ -735,6 +895,105 @@ func (pa *ParetoArchive) selectFromCells(weight func(count float64) float64, rng
 	}
 
 	return pa.Solutions[member]
+}
+
+func (pa *ParetoArchive) effectivePolicy() ArchivePolicy {
+	if pa == nil || pa.Policy == "" {
+		return ArchivePolicyPaperSegments
+	}
+
+	return pa.Policy
+}
+
+// densityRanks reproduces RankingProcess.m. A point's rank is the number of
+// archive points strictly closer than span/20 in every objective, including
+// itself when every objective span is non-zero.
+func (pa *ParetoArchive) densityRanks() []int {
+	if pa == nil || len(pa.Solutions) == 0 {
+		return nil
+	}
+
+	objectives := len(pa.Solutions[0].ObjectiveValues)
+	lower := make([]float64, objectives)
+	upper := make([]float64, objectives)
+
+	copy(lower, pa.Solutions[0].ObjectiveValues)
+	copy(upper, pa.Solutions[0].ObjectiveValues)
+
+	for _, solution := range pa.Solutions[1:] {
+		for m, value := range solution.ObjectiveValues {
+			lower[m] = math.Min(lower[m], value)
+			upper[m] = math.Max(upper[m], value)
+		}
+	}
+
+	radius := make([]float64, objectives)
+	for m := range radius {
+		span := upper[m] - lower[m]
+
+		radius[m] = span / 20
+		if !isFinite(span) {
+			radius[m] = upper[m]/20 - lower[m]/20
+		}
+	}
+
+	ranks := make([]int, len(pa.Solutions))
+	for i, first := range pa.Solutions {
+		for _, second := range pa.Solutions {
+			inside := true
+
+			for m := range objectives {
+				if !(math.Abs(second.ObjectiveValues[m]-first.ObjectiveValues[m]) < radius[m]) {
+					inside = false
+
+					break
+				}
+			}
+
+			if inside {
+				ranks[i]++
+			}
+		}
+	}
+
+	return ranks
+}
+
+func (pa *ParetoArchive) selectByDensity(sparse bool, rng *rand.Rand) *ParetoSolution {
+	if pa == nil || len(pa.Solutions) == 0 {
+		return nil
+	}
+
+	ranks := pa.densityRanks()
+	logWeights := make([]float64, len(ranks))
+	positiveRank := false
+
+	for i, rank := range ranks {
+		if rank == 0 {
+			// MODA.m's roulette cannot select from all-zero or infinite
+			// weights and falls back to the first member.
+			if sparse {
+				return pa.Solutions[0]
+			}
+
+			logWeights[i] = math.Inf(-1)
+
+			continue
+		}
+
+		positiveRank = true
+
+		logWeights[i] = math.Log(float64(rank))
+		if sparse {
+			logWeights[i] = -logWeights[i]
+		}
+	}
+
+	if !positiveRank {
+		return pa.Solutions[0]
+	}
+
+	return pa.Solutions[rouletteLogIndex(logWeights, rng)]
 }
 
 // evictOverflow trims the archive back to MaxSize, deleting from the most
@@ -745,14 +1004,44 @@ func (pa *ParetoArchive) selectFromCells(weight func(count float64) float64, rng
 // more than one still lands on capacity.
 func (pa *ParetoArchive) evictOverflow(rng *rand.Rand) {
 	for len(pa.Solutions) > pa.MaxSize {
-		cells := pa.occupiedCells()
-		weights := make([]float64, len(cells))
+		if pa.effectivePolicy() == ArchivePolicyMATLABDensity {
+			ranks := pa.densityRanks()
+			logWeights := make([]float64, len(ranks))
+			positiveRank := false
 
-		for i, cell := range cells {
-			weights[i] = math.Pow(float64(len(cell.Members)), pa.Delta)
+			for i, rank := range ranks {
+				if rank == 0 {
+					logWeights[i] = math.Inf(-1)
+				} else {
+					positiveRank = true
+					logWeights[i] = math.Log(float64(rank))
+				}
+			}
+
+			victim := 0
+			if positiveRank {
+				victim = rouletteLogIndex(logWeights, rng)
+			}
+
+			pa.Solutions = append(pa.Solutions[:victim], pa.Solutions[victim+1:]...)
+			pa.updateGrid()
+
+			continue
 		}
 
-		chosen := cells[rouletteIndex(weights, rng)]
+		cells := pa.occupiedCells()
+		logWeights := make([]float64, len(cells))
+
+		exponent := 1.0
+		if pa.effectivePolicy() == ArchivePolicyMOPSOGrid {
+			exponent = pa.Delta
+		}
+
+		for i, cell := range cells {
+			logWeights[i] = exponent * math.Log(float64(len(cell.Members)))
+		}
+
+		chosen := cells[rouletteLogIndex(logWeights, rng)]
 		victim := chosen.Members[0]
 
 		if rng != nil && len(chosen.Members) > 1 {
@@ -773,20 +1062,35 @@ func rouletteIndex(weights []float64, rng *rand.Rand) int {
 		return 0
 	}
 
-	total := 0.0
-
-	for _, weight := range weights {
-		if isFinite(weight) && weight > 0 {
-			total += weight
-		}
-	}
-
 	if rng == nil {
 		return 0
 	}
 
-	if !(total > 0) || !isFinite(total) {
+	maxWeight := 0.0
+
+	infinite := make([]int, 0, len(weights))
+	for i, weight := range weights {
+		if math.IsInf(weight, 1) {
+			infinite = append(infinite, i)
+		} else if isFinite(weight) && weight > maxWeight {
+			maxWeight = weight
+		}
+	}
+
+	if len(infinite) > 0 {
+		return infinite[rng.Intn(len(infinite))]
+	}
+
+	if !(maxWeight > 0) {
 		return rng.Intn(len(weights))
+	}
+
+	total := 0.0
+
+	for _, weight := range weights {
+		if isFinite(weight) && weight > 0 {
+			total += weight / maxWeight
+		}
 	}
 
 	draw := rng.Float64() * total
@@ -794,7 +1098,7 @@ func rouletteIndex(weights []float64, rng *rand.Rand) int {
 
 	for i, weight := range weights {
 		if isFinite(weight) && weight > 0 {
-			cumulative += weight
+			cumulative += weight / maxWeight
 		}
 
 		if draw < cumulative {
@@ -803,6 +1107,59 @@ func rouletteIndex(weights []float64, rng *rand.Rand) int {
 	}
 
 	return len(weights) - 1
+}
+
+// rouletteLogIndex performs a stable roulette draw from logarithmic weights.
+// Subtracting the largest log weight before exponentiation prevents both
+// overflow and underflow from turning an intentional bias into a uniform draw.
+func rouletteLogIndex(logWeights []float64, rng *rand.Rand) int {
+	if len(logWeights) == 0 {
+		return 0
+	}
+
+	positiveInfinity := make([]int, 0, len(logWeights))
+
+	maxLog := math.Inf(-1)
+	for i, weight := range logWeights {
+		if math.IsInf(weight, 1) {
+			positiveInfinity = append(positiveInfinity, i)
+		} else if !math.IsNaN(weight) && weight > maxLog {
+			maxLog = weight
+		}
+	}
+
+	if len(positiveInfinity) > 0 {
+		if rng == nil {
+			return positiveInfinity[0]
+		}
+
+		return positiveInfinity[rng.Intn(len(positiveInfinity))]
+	}
+
+	if math.IsInf(maxLog, -1) {
+		if rng == nil {
+			return 0
+		}
+
+		return rng.Intn(len(logWeights))
+	}
+
+	weights := make([]float64, len(logWeights))
+	for i, weight := range logWeights {
+		if !math.IsNaN(weight) && !math.IsInf(weight, -1) {
+			weights[i] = math.Exp(weight - maxLog)
+		}
+	}
+
+	if rng == nil {
+		for i, weight := range weights {
+			if weight == 1 {
+				return i
+			}
+		}
+	}
+
+	return rouletteIndex(weights, rng)
 }
 
 // MultiObjectiveConfig configures a MODA run.
@@ -818,10 +1175,12 @@ func rouletteIndex(weights []float64, rng *rand.Rand) int {
 type MultiObjectiveConfig struct {
 	ObjectiveFunc MultiObjectiveFunction `json:"-"`
 	Swarm         *Config                `json:"swarm"`
+	// ArchivePolicy selects paper segments, MATLAB density ranking, or the
+	// v0.1.0 MOPSO grid extension. Empty follows Swarm.FidelityMode.
+	ArchivePolicy ArchivePolicy `json:"archive_policy,omitempty"`
 
-	// Beta, Gamma and Delta are the hypercube roulette exponents. See the
-	// UNVERIFIED note on DefaultArchiveBeta before treating the defaults as
-	// paper values.
+	// Beta, Gamma and Delta are used only by ArchivePolicyMOPSOGrid. They are
+	// legacy extension parameters, not paper or MODA.m constants.
 	Beta  float64 `json:"beta"`
 	Gamma float64 `json:"gamma"`
 	Delta float64 `json:"delta"`
@@ -833,8 +1192,8 @@ type MultiObjectiveConfig struct {
 // NewMultiObjectiveConfig creates a default MODA configuration.
 // You must set ObjectiveFunc and Swarm's ProblemSize, LowerBound and UpperBound.
 //
-// The archive parameters are the defaults documented -- and flagged as
-// unverified -- on DefaultArchiveBeta.
+// The exponent fields retain the v0.1 MOPSO extension defaults; paper mode does
+// not consult them. ArchiveSize 100 is verified against MODA.m.
 func NewMultiObjectiveConfig() *MultiObjectiveConfig {
 	return &MultiObjectiveConfig{
 		Swarm:       NewDefaultConfig(),
@@ -868,7 +1227,8 @@ type MultiObjectiveResult struct {
 
 	FuncEvalCount  int
 	IterationCount int
-	Seed           int64
+	Seed           int64 // Random seed used for reproducibility, when SeedKnown is true
+	SeedKnown      bool  // Whether Seed identifies the random stream that drove the run
 }
 
 // validateMultiObjectiveConfig rejects a configuration MODA cannot run.
@@ -889,6 +1249,17 @@ func validateMultiObjectiveConfig(config *MultiObjectiveConfig) error {
 
 	if config.Swarm == nil {
 		return errors.New("swarm config must be set; start from NewMultiObjectiveConfig")
+	}
+
+	if config.Swarm.UseBinary {
+		return errors.New("swarm.use_binary is not supported for a multi-objective run")
+	}
+
+	policy := effectiveArchivePolicy(config)
+	if policy != ArchivePolicyPaperSegments &&
+		policy != ArchivePolicyMATLABDensity &&
+		policy != ArchivePolicyMOPSOGrid {
+		return fmt.Errorf("unknown archive_policy %q", config.ArchivePolicy)
 	}
 
 	swarm := *config.Swarm
@@ -958,13 +1329,35 @@ func validateMultiObjectiveConstraints(constraints *ConstraintConfig) error {
 // budget was capped when it was not, so it is rejected instead. Stagnation and
 // MinIterations do carry over -- see moStagnationTracker.
 func validateMultiObjectiveConvergence(convergence *ConvergenceConfig) error {
-	if convergence == nil || convergence.TargetCost == nil {
+	if convergence == nil {
 		return nil
 	}
 
-	return errors.New(
-		"convergence.target_cost has no meaning for a multi-objective run: " +
-			"a Pareto front has no single best cost; use stagnation_iterations instead")
+	if convergence.TargetCost != nil {
+		return errors.New(
+			"convergence.target_cost has no meaning for a multi-objective run: " +
+				"a Pareto front has no single best cost; use stagnation_iterations instead")
+	}
+
+	if convergence.MinImprovement != 0 {
+		return errors.New(
+			"convergence.min_improvement has no meaning for a multi-objective run: " +
+				"archive changes are discrete; leave it at zero")
+	}
+
+	return nil
+}
+
+func effectiveArchivePolicy(config *MultiObjectiveConfig) ArchivePolicy {
+	if config != nil && config.ArchivePolicy != "" {
+		return config.ArchivePolicy
+	}
+
+	if config != nil && config.Swarm != nil && config.Swarm.FidelityMode == FidelityMATLAB {
+		return ArchivePolicyMATLABDensity
+	}
+
+	return ArchivePolicyPaperSegments
 }
 
 // moStagnationTracker is MODA's early-stopping rule: the archive is the
@@ -1032,6 +1425,9 @@ type moState struct {
 	// the buffer needs no synchronization beyond parallelFor's join.
 	scores    []moEvaluation
 	funcEvals int
+	// objectiveCount is fixed by the first completed evaluation batch and
+	// checked before any candidate from later batches can mutate the archive.
+	objectiveCount int
 	// maxWorkers is the fan-out of the objective evaluation, or zero when the
 	// run scores the swarm on the calling goroutine. It is the only thing
 	// EnableParallel changes about a MODA run: every random draw happens in the
@@ -1103,14 +1499,7 @@ func OptimizeMultiObjective(
 		return nil, populationErr
 	}
 
-	// The seed is drawn whether or not it is used, so Seed is always populated;
-	// this is the convention OptimizeContext follows.
-	seed := time.Now().UnixNano()
-	if swarmConfig.Rand == nil {
-		swarmConfig.Rand = rand.New(rand.NewSource(seed))
-	}
-
-	rng := swarmConfig.Rand
+	rng, seed, seedKnown := resolveRandomSource(swarmConfig)
 
 	state, initErr := initializeMultiObjectiveRun(ctx, config, resolved, rng)
 	if initErr != nil {
@@ -1154,6 +1543,7 @@ func OptimizeMultiObjective(
 		FuncEvalCount:     state.funcEvals,
 		IterationCount:    completed,
 		Seed:              seed,
+		SeedKnown:         seedKnown,
 	}, nil
 }
 
@@ -1192,8 +1582,8 @@ func initializeMultiObjectiveRun(
 	}
 
 	state := &moState{
-		archive: NewParetoArchiveWithGrid(config.ArchiveSize, config.NGrid,
-			config.Beta, config.Gamma, config.Delta),
+		archive: newParetoArchive(config.ArchiveSize, config.NGrid,
+			config.Beta, config.Gamma, config.Delta, effectiveArchivePolicy(config)),
 		swarm:  swarm,
 		scores: make([]moEvaluation, len(swarm)),
 	}
@@ -1243,34 +1633,48 @@ func (state *moState) evaluateSwarm(
 
 	state.funcEvals += len(state.swarm)
 
+	expectedObjectives := state.objectiveCount
+	for i := range state.swarm {
+		values := state.scores[i].values
+		if len(values) == 0 {
+			return 0, errors.New("ObjectiveFunc must return at least one objective value")
+		}
+
+		if expectedObjectives == 0 {
+			expectedObjectives = len(values)
+		}
+
+		if len(values) != expectedObjectives {
+			return 0, fmt.Errorf("ObjectiveFunc must return a fixed number of objectives, got %d then %d",
+				expectedObjectives, len(values))
+		}
+
+		for m, value := range values {
+			if !isFinite(value) {
+				return 0, fmt.Errorf("%w: objective %d returned %v", ErrNoFiniteObjective, m, value)
+			}
+		}
+
+		if violation := state.scores[i].violation; !isFinite(violation) || violation < 0 {
+			return 0, fmt.Errorf("constraints returned invalid aggregate violation %v", violation)
+		}
+	}
+
+	state.objectiveCount = expectedObjectives
 	candidates := make([]*ParetoSolution, 0, len(state.swarm))
 
 	for i := range state.swarm {
 		fly := &state.swarm[i]
 		values := state.scores[i].values
 
-		if len(values) == 0 {
-			return 0, errors.New("ObjectiveFunc must return at least one objective value")
-		}
-
-		if state.archive.Len() > 0 && len(values) != len(state.archive.Solutions[0].ObjectiveValues) {
-			return 0, fmt.Errorf("ObjectiveFunc must return a fixed number of objectives, got %d then %d",
-				len(state.archive.Solutions[0].ObjectiveValues), len(values))
-		}
-
-		sanitized := make([]float64, len(values))
-		for m, value := range values {
-			sanitized[m] = sanitizeCost(value)
-		}
-
 		// Cost carries the first objective purely so an inspecting caller sees
 		// something meaningful; nothing in a MODA run reads it.
-		fly.Cost = sanitized[0]
+		fly.Cost = values[0]
 		fly.ConstraintViolation = state.scores[i].violation
 
 		candidates = append(candidates, &ParetoSolution{
 			Position:            copyVec(fly.Position),
-			ObjectiveValues:     sanitized,
+			ObjectiveValues:     copyVec(values),
 			ConstraintViolation: fly.ConstraintViolation,
 		})
 	}
@@ -1299,7 +1703,9 @@ func (state *moState) scorePositions(ctx context.Context, config *MultiObjective
 
 	score := func(i int) {
 		state.scores[i] = moEvaluation{
-			values:    config.ObjectiveFunc(state.swarm[i].Position),
+			// Copy at the callback boundary: callers are allowed to reuse a
+			// scratch result slice on their next invocation.
+			values:    copyVec(config.ObjectiveFunc(state.swarm[i].Position)),
 			violation: EvaluateConstraints(state.swarm[i].Position, config.Swarm.Constraints).Violation,
 		}
 	}
@@ -1309,6 +1715,11 @@ func (state *moState) scorePositions(ctx context.Context, config *MultiObjective
 	}
 
 	for i := range state.swarm {
+		err := ctx.Err()
+		if err != nil {
+			return err
+		}
+
 		score(i)
 	}
 
@@ -1325,7 +1736,7 @@ func (state *moState) advance(
 	rng *rand.Rand,
 ) (int, error) {
 	swarmConfig := config.Swarm
-	weights := computeWeights(swarmConfig, iteration, swarmConfig.MaxIterations, rng)
+	weights := computeWeights(swarmConfig, iteration+1, swarmConfig.MaxIterations, rng)
 
 	// Drawn once per iteration, as the reference MODA does, rather than once per
 	// dragonfly: the whole swarm is pulled toward the same sparse region and
@@ -1380,12 +1791,17 @@ type ParetoExport struct {
 	Front             []ParetoPoint     `json:"front"`
 	ArchiveSizeCurve  []int             `json:"archive_size_curve,omitempty"`
 	Seed              int64             `json:"seed"`
+	SeedKnown         bool              `json:"seed_known"`
 	ArchiveSize       int               `json:"archive_size"`
 	FuncEvalCount     int               `json:"func_eval_count"`
 	IterationCount    int               `json:"iteration_count"`
 }
 
-var errNilMultiObjectiveResult = errors.New("multi-objective result cannot be nil")
+var (
+	errNilMultiObjectiveResult = errors.New("multi-objective result cannot be nil")
+	errNilParetoArchive        = errors.New("pareto archive cannot be nil")
+	errNilParetoSolution       = errors.New("pareto archive contains a nil solution")
+)
 
 // ExportParetoCSV writes the archived front to path, one row per solution, with
 // an index column, one column per objective and one per decision variable.
@@ -1474,6 +1890,7 @@ func (result *MultiObjectiveResult) ExportParetoJSON(path string) error {
 		Front:             points,
 		ArchiveSizeCurve:  result.ArchiveSizeCurve,
 		Seed:              result.Seed,
+		SeedKnown:         result.SeedKnown,
 		ArchiveSize:       len(points),
 		FuncEvalCount:     result.FuncEvalCount,
 		IterationCount:    result.IterationCount,
@@ -1498,9 +1915,26 @@ func (result *MultiObjectiveResult) paretoPoints() ([]ParetoPoint, error) {
 		return nil, errNilMultiObjectiveResult
 	}
 
+	if result.Archive == nil {
+		return nil, errNilParetoArchive
+	}
+
 	points := make([]ParetoPoint, 0, result.Archive.Len())
+	expectedObjectives := 0
 
 	for i, solution := range result.Archive.Solutions {
+		if solution == nil {
+			return nil, fmt.Errorf("%w at index %d", errNilParetoSolution, i)
+		}
+
+		if expectedObjectives == 0 {
+			expectedObjectives = len(solution.ObjectiveValues)
+		}
+
+		if !validParetoSolution(solution, expectedObjectives) {
+			return nil, fmt.Errorf("invalid Pareto solution at index %d", i)
+		}
+
 		points = append(points, ParetoPoint{
 			Position:            copyVec(solution.Position),
 			Objectives:          copyVec(solution.ObjectiveValues),

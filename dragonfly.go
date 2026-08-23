@@ -26,10 +26,15 @@ package dragonfly
 
 import (
 	"context"
+	"errors"
 	"math"
 	"math/rand"
-	"time"
 )
+
+// ErrNoFiniteObjective is returned when the initial population contains no
+// finite objective value. In that case there is no real food source from which
+// a meaningful DA or BDA step can be computed.
+var ErrNoFiniteObjective = errors.New("objective produced no finite value")
 
 // runState is the mutable state of one optimization run: the swarm itself, the
 // two extreme positions every step is computed against, and the objective call
@@ -102,21 +107,17 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 		return nil, populationErr
 	}
 
-	// The seed is drawn whether or not it is used, so Result.Seed is always
-	// populated. When the caller supplied their own *rand.Rand it is that
-	// generator, not this seed, that drives the run -- the recorded value is
-	// then the unused fallback and reproducing the run means reusing the
-	// caller's generator. This is Mayfly's convention.
-	seed := time.Now().UnixNano()
-	if config.Rand == nil {
-		config.Rand = rand.New(rand.NewSource(seed))
-	}
-
-	rng := config.Rand
+	// A configured seed is reproducible. A directly supplied generator has no
+	// introspectable seed and is marked unknown in the result.
+	rng, seed, seedKnown := resolveRandomSource(config)
 
 	state, initializationErr := initializeRun(ctx, config, resolved, rng)
 	if initializationErr != nil {
 		return nil, initializationErr
+	}
+
+	if !hasFiniteObjective(state.swarm) {
+		return nil, ErrNoFiniteObjective
 	}
 
 	tracker := newConvergenceTracker(config.Convergence, state.food, state.evaluator)
@@ -133,7 +134,7 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 			return nil, ctxErr
 		}
 
-		weights := computeWeights(config, t, config.MaxIterations, rng)
+		weights := computeWeights(config, t+1, config.MaxIterations, rng)
 
 		prepareSwarm(state, config, weights, rng)
 
@@ -166,6 +167,7 @@ func OptimizeContext(ctx context.Context, config *Config, options ...RunOption) 
 		FuncEvalCount:     state.funcEvals,
 		IterationCount:    completed,
 		Seed:              seed,
+		SeedKnown:         seedKnown,
 	}
 
 	logOptimizationCompleted(ctx, resolved.logger, result)
@@ -280,17 +282,19 @@ func (state *runState) evaluateSwarm() {
 // evaluate scores the swarm and updates the food source and the enemy, through
 // the worker pool when the run is parallel and inline when it is not.
 //
-// Both paths compute the same thing. The sequential one is left exactly as it
-// was -- it does not consult the context, because OptimizeContext already
-// checks cancellation at the top of every iteration and an unparallelized run
-// has nothing to abandon midway. The parallel one can be canceled between
-// objective calls, and reports that as an error rather than committing a
-// half-scored batch.
+// Both paths compute the same thing. Cancellation is checked before and after
+// the sequential batch; the parallel path can also stop between objective
+// calls without committing a partial batch.
 func (state *runState) evaluate(ctx context.Context) error {
 	if state.pool == nil {
+		contextErr := ctx.Err()
+		if contextErr != nil {
+			return contextErr
+		}
+
 		state.evaluateSwarm()
 
-		return nil
+		return ctx.Err()
 	}
 
 	count, err := evaluateParallelStep(ctx, state, state.pool)
@@ -301,6 +305,16 @@ func (state *runState) evaluate(ctx context.Context) error {
 	state.funcEvals += count
 
 	return nil
+}
+
+func hasFiniteObjective(swarm []Dragonfly) bool {
+	for i := range swarm {
+		if isFinite(swarm[i].Cost) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // foodInRadius reports whether the food source lies inside the per-dimension
@@ -316,18 +330,22 @@ func (state *runState) evaluate(ctx context.Context) error {
 //
 // A missing or mismatched food vector counts as out of range, and a NaN
 // component fails the test because every comparison against NaN is false.
-func foodInRadius(position, food []float64, radius float64) bool {
-	if len(position) != len(food) || len(position) == 0 {
+func referenceInRadius(position, reference []float64, radius float64) bool {
+	if len(position) != len(reference) || len(position) == 0 {
 		return false
 	}
 
 	for k := range position {
 		// Written as a negated <= rather than a >, so that a NaN component
 		// fails the test: every comparison against NaN is false.
-		if !(math.Abs(position[k]-food[k]) <= radius) {
+		if !(math.Abs(position[k]-reference[k]) <= radius) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func foodInRadius(position, food []float64, radius float64) bool {
+	return referenceInRadius(position, food, radius)
 }

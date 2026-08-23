@@ -17,9 +17,8 @@ style, tooling and conventions.
 - **Three variants** — continuous `DA`, binary `BDA`, multi-objective `MODA`
 - **Standard library only** — the sole direct dependency is `godog`, and it is test-only
 - **Deterministic** — a seeded run reproduces bit-for-bit, with parallel evaluation on or off
-- **Paper-faithful** — the two-branch step update, the per-dimension neighbourhood test and the
-  enemy sum are implemented as the reference `DA.m` computes them, with the deviations
-  [documented](#deviations-from-the-reference-matlab) rather than quietly smoothed over
+- **Explicit fidelity** — paper behavior is the default; `FidelityMATLAB` names the reference
+  operator choices where the sources disagree instead of hiding a paper/MATLAB hybrid
 - **Constraint handling** — Deb's feasibility rules, or linear/quadratic penalties
 - **Observable** — progress and population observers, `log/slog` integration, CSV/JSON export
 - **Benchmark suite** — 15 single-objective and 4 multi-objective test functions
@@ -129,15 +128,15 @@ fmt.Printf("cost %.6f, violation %g, feasible %v\n",
 
 ### Reproducing a run
 
-When `Config.Rand` is nil, `OptimizeContext` draws a seed, records it in `Result.Seed` and
-writes the generator back into the config. Feeding that seed back reproduces the trajectory
-exactly:
+Set `Config.Seed` when the seed must be reportable and replayable. Library-created seeds are
+also reported with `Result.SeedKnown = true`; a directly injected `Config.Rand` has unknown
+seed metadata.
 
 ```go
 first, _ := dragonfly.Optimize(newConfig())
 
 replay := newConfig()
-replay.Rand = rand.New(rand.NewSource(first.Seed))
+replay.Seed = &first.Seed
 
 second, _ := dragonfly.Optimize(replay)
 // second.GlobalBest.Cost == first.GlobalBest.Cost
@@ -312,8 +311,8 @@ A browser demo of the library lives in [`examples/wasm-demo`](examples/wasm-demo
 and is published to <https://cwbudde.github.io/Dragonfly/>. It has four pages:
 
 - a **Swarm Lab** that animates the swarm over a benchmark landscape, colouring
-  each dragonfly by which branch of the two-branch step update it is about to
-  take, and drawing the neighbourhood as the axis-aligned box it actually is;
+  each dragonfly by its update regime and drawing the neighbourhood as the
+  axis-aligned box it actually is;
 - a **Pareto** page that animates MODA's archive filling in, over the hypercube
   grid its food and enemy draws turn on;
 - a **Binary** page showing BDA's swarm as a bit matrix beside the transfer
@@ -388,17 +387,17 @@ Lechuga (2004) for the hypercube archive MODA borrows. Full citations and BibTeX
 | `comparison.go`     | Wilcoxon signed-rank, Friedman test                      | Standard non-parametric statistics  |
 | `functions.go`      | 15 single-objective + 4 multi-objective benchmarks       | CEC / standard test suites, ZDT     |
 
-### Verified, and not yet verified
+### Fidelity and verified reference values
 
-The reference `DA.m`, `BDA.m` and `MODA.m` are the authority wherever the paper and a "cleaner"
-formulation disagree. Three constants deserve a plain statement of their provenance, because
-they are easy to mistake for settled paper values:
+The paper is the default authority. `Config.FidelityMode = FidelityMATLAB` selects the author's
+reference operators where the sources disagree, and MODA exposes paper, MATLAB-density and
+legacy MOPSO archive policies by name. Three constants deserve a plain provenance statement:
 
-| Constant                                                    | Status                                                                                                                                                                                                                                                         |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Lévy σ and the `0.01` scale factor                          | **Verified.** `levySigma(1.5)` evaluates to `0.6965745026`, the accepted Mantegna value for β = 1.5, and `0.01` is the scale the DA reference implementation uses.                                                                                             |
-| MODA's `β = 4, γ = 2, δ = 2, NGrid = 10, ArchiveSize = 100` | **Unverified.** These are the MOPSO defaults from Coello Coello et al. (2004), the lineage MODA borrows its archive from. `MODA.m` is not available to this repository, so they have not been read off the author's code. Do not cite them as DA paper values. |
-| `NewBinaryConfig`'s `MaxStepRatio = 6.0`                    | **This implementation's choice.** The transfer functions saturate by \|Δx\| ≈ 6, so clamping there is what makes the whole range of flip probabilities reachable. It has not been checked against `BDA.m`.                                                     |
+| Constant                                      | Status                                                                                                                                                                                                   |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lévy σ and the `0.01` scale factor            | **Verified.** `levySigma(1.5)` is `0.6965745026`; the official DA and BDA `Levy.m` files use β `1.5` and scale `0.01`.                                                                                   |
+| MODA's `β = 4, γ = 2, δ = 2, NGrid = 10`      | **Legacy extension only.** These are not `MODA.m` values. They remain available through `ArchivePolicyMOPSOGrid`; paper mode uses `1/N` and `N`, while MATLAB mode uses objective-space density ranking. |
+| `ArchiveSize = 100` and BDA's `±6` step clamp | **Verified.** Both occur in the official `MODA.m` / `BDA.m` packages.                                                                                                                                    |
 
 ### Deviations from the reference MATLAB
 
@@ -412,12 +411,10 @@ Each is deliberate, and each is commented at the point in the source where it ha
    otherwise the same — but every position handed to the objective function, and every position
    in the returned `Result`, is inside `[LowerBound, UpperBound]`.
    (`parallel_phases.go`, `prepareSwarmStep`)
-2. **Binary mode ignores `BoundaryMethod` and the Lévy branch.** A 0/1 vector cannot leave
-   `[0, 1]`, so there is nothing for a wrap, clamp or reflect rule to repair — and applying the
-   wrap rule anyway would reset the very step the next bit-flip decision is made from. The Lévy
-   walk is a multiplicative displacement of a real-valued position and has no binary
-   counterpart, so the food-out-of-range branch is the local-swarming step for every dragonfly,
-   isolated or not. `Config.UseLevyWalk` is ignored. (`binary.go`, `OptimizeBinaryContext`)
+2. **Binary mode ignores `BoundaryMethod` and the Lévy branch.** A bit cannot leave `[0,1]`,
+   and BDA uses every other dragonfly as a neighbor with one unconditional five-factor step.
+   V-shaped transfers complement the current bit; S-shaped transfers assign the sampled bit.
+   (`binary.go`, `OptimizeBinaryContext`)
 3. **`selector.go` does not port Mayfly's gradient-magnitude landscape heuristic.** That
    heuristic is scale-dependent: it called Sphere over `[-5, 5]` rugged and Sphere over
    `[-1, 1]` smooth, which says more about the bounds than about the function. It is replaced

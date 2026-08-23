@@ -53,31 +53,34 @@ curve that looks entirely plausible. It is nevertheless wrong: the paper and `DA
 `enemyVector` in `swarm.go` says so in its doc comment, and `swarm_test.go` pins it with a
 hand-computed case. Read the test before "fixing" it.
 
-With no neighbours, `S_i` and `C_i` are the zero vector and `A_i` falls back to the dragonfly's
-own step — all three are the reference implementation's fallbacks, reproduced on purpose.
+Paper mode uses the available neighbor whenever one exists. MATLAB mode reproduces the
+reference fallback for zero or one neighbor: zero separation/cohesion and alignment equal to
+the dragonfly's own step. The reference also reverses the paper's separation sign, so that
+difference is controlled by `Config.FidelityMode` rather than hidden in a hybrid.
 
 ### The neighbourhood scan
 
 A neighbour is one whose distance is within the radius in **every component**:
 
 ```
-all(|X_i,k - X_j,k| <= r)   and   any(X_i,k - X_j,k != 0)
+all(|X_i,k - X_j,k| <= r)   and   all(X_i,k - X_j,k != 0)
 ```
 
 This is a box test, not a ball test. A Euclidean `‖X_i - X_j‖ <= r` shortcut accepts only the
 inscribed ball, silently shrinks every neighbourhood, and degrades convergence without failing
-any end-to-end test. The second clause excludes a dragonfly from being its own neighbour, and
-also excludes any dragonfly that happens to sit on exactly the same position — again the
-reference behaviour, not an oversight.
+any end-to-end test. The second clause is also component-wise: a candidate sharing even one
+coordinate is excluded. That unusual rule is what the reference's `all(dist != 0)` expression
+does, and a dedicated fixture pins it.
 
 The food-in-range test (`foodInRadius` in `dragonfly.go`) deliberately does **not** reuse this
 helper: it has no all-zero exclusion, because a dragonfly sitting exactly on the food source is
 at distance zero in every dimension and must still see the food as in range.
 
-### The two-branch step update
+### Paper and MATLAB step updates
 
-This is the single most important fidelity detail in the algorithm (`parallel_phases.go`,
-`prepareSwarmStep`):
+Paper mode applies the full five-factor step whenever at least one neighbor exists, with food
+and enemy independently zeroed when outside the radius. An isolated dragonfly takes the Lévy
+walk. MATLAB mode uses the reference implementation's food-distance branch:
 
 ```
 if food is NOT within r in every dimension:      # local swarming only
@@ -94,12 +97,8 @@ else:                                            # the full five-factor step
     X += ΔX
 ```
 
-Collapsing this into one unconditional five-factor step is the classic porting bug. It still
-converges on Sphere, which is exactly what lets it survive review. Two details inside the
-branches matter as much as the branching itself: the three `rand` factors in the swarming
-branch are drawn **per dimension** (drawing one per dragonfly makes the three primitives share
-a scaling factor and changes the search, not just the random stream), and the Lévy branch
-replaces the step rather than contributing to it, so `ΔX` is reset to zero.
+The three `rand` factors in MATLAB's local-swarming branch are drawn **per dimension**, and the
+Lévy branch replaces the step rather than contributing to it, so `ΔX` is reset to zero.
 
 ### Adaptive weight schedules
 
@@ -241,12 +240,13 @@ Remember that `0` is a pinned value. `WeightAuto` (`-1`) is what means "use the 
 
 ### Geometry
 
-| Field                  |  Default | Meaning                             |
-| ---------------------- | -------: | ----------------------------------- |
-| `RadiusInitialDivisor` |      4.0 | `r` starts at `(ub-lb)/divisor`     |
-| `RadiusGrowth`         |      2.0 | `r` grows by `(ub-lb)·(t/T)·growth` |
-| `MaxStepRatio`         |      0.1 | step clamp `ΔX_max = (ub-lb)·ratio` |
-| `BoundaryMethod`       | `"wrap"` | `"wrap"`, `"clamp"` or `"reflect"`  |
+| Field                  |   Default | Meaning                             |
+| ---------------------- | --------: | ----------------------------------- |
+| `RadiusInitialDivisor` |       4.0 | `r` starts at `(ub-lb)/divisor`     |
+| `RadiusGrowth`         |       2.0 | `r` grows by `(ub-lb)·(t/T)·growth` |
+| `MaxStepRatio`         |       0.1 | step clamp `ΔX_max = (ub-lb)·ratio` |
+| `BoundaryMethod`       |  `"wrap"` | `"wrap"`, `"clamp"` or `"reflect"`  |
+| `FidelityMode`         | `"paper"` | `"paper"` or `"matlab"`             |
 
 ### Lévy walk
 

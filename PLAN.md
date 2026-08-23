@@ -2,8 +2,8 @@
 
 Module: `github.com/CWBudde/dragonfly`
 Package: `dragonfly` (flat, at the repository root)
-Status: **Phases 1–10 complete**, released as `v0.1.0`. The unchecked boxes below the
-phases are the deferred and open items, not work in progress.
+Status: **Phases 1–10 complete**, released as `v0.1.0`; **Phase 11 is open**. The unchecked
+boxes below the phases are the deferred and open items.
 
 This document is the roadmap. It is organised the same way as the sibling
 [Mayfly](https://github.com/cwbudde/mayfly) project's `PLAN.md`: numbered phases,
@@ -483,6 +483,120 @@ statistical question with a tolerance attached.
       proxy, so that is a distinct module from the lowercase one and cannot be
       withdrawn. Harmless, but a search may surface it: decide whether to note it in the
       README so nobody depends on the capitalised path by accident.
+
+---
+
+## Phase 11: Post-v0.1.0 correctness and fidelity remediation
+
+An adversarial multi-agent audit on 2026-08-23 compared the implementation and tests with
+the paper and the author's official `DA.m`, `BDA.m`, and `MODA.m`. The result is not a list
+of cosmetic follow-ups: several passing tests encode behavior that matches neither source,
+and the implementation currently mixes paper formulas, MATLAB control flow, and local
+extensions while the documentation often says the sources agree.
+
+The policy for this phase is **paper behavior by default, with an explicit MATLAB
+compatibility mode** wherever the sources genuinely disagree. Locally improved behavior
+remains available only when it is named and documented as an extension.
+
+### 11.1 Canonical behavior and public contracts
+
+- [ ] Add `FidelityMode` with paper-default and MATLAB-compatible values; isolate the
+      separation sign, one-neighbour fallback, food-distance branching, schedule, boundary,
+      initialization, and evaluation-budget differences behind that explicit policy.
+      **Progress:** the public mode and operator/init/schedule differences are implemented;
+      exact MATLAB boundary ordering and evaluation-budget lifecycle remain open.
+- [x] Add named MODA archive policies for the paper's segment probabilities, MATLAB's
+      objective-span/20 density ranking, and the existing MOPSO-style grid. Keep the current
+      `4/2/2`, `NGrid = 10` behavior only as an explicitly selected extension.
+- [x] Replace false seed metadata with an explicit seed contract: library-created seeds are
+      reproducible and reported as known; caller-supplied `*rand.Rand` state is reported as
+      unknown unless the library itself constructed it from a configured seed.
+- [x] Record the official-source hashes and replace the remaining unverified claims: Lévy
+      `β = 1.5` and scale `0.01`, BDA's `±6` clamp, and MODA archive size 100 are verified;
+      the current MODA grid/exponents are not reference values.
+
+**Rationale**: A research implementation cannot call three conflicting behaviors jointly
+faithful. The mode and policy names make every trajectory say which specification produced
+it, while retaining the released extension for reproducibility.
+
+### 11.2 DA and shared swarm mechanics
+
+- [x] Correct neighbour exclusion to the promised component-wise `all(distance != 0)` rule
+      and add the missing shared-coordinate fixture.
+- [x] Gate the enemy term independently: an enemy outside the radius contributes exactly
+      zero even when the food is inside it.
+- [x] Replace the current paper/MATLAB hybrid for separation, exactly one neighbour, and the
+      two update branches with hand-computed mode-specific transitions.
+- [x] Feed schedules the iteration indices they actually specify and assert the first and
+      final coefficients consumed by a real run, not the unused `t = T` helper value.
+- [x] Validate the bound span itself as finite; replace iterative reflection with a
+      constant-time fold whose step sign follows wall-crossing parity.
+- [x] Never return the synthetic zero-position sentinel when every cost is non-finite;
+      return a named error if no usable incumbent exists.
+- [x] Check cancellation before initialization and after every sequential evaluation batch,
+      including the final batch; remove hidden package-global RNG fallbacks.
+
+**Rationale**: These faults change neighbourhood membership, acceleration, or the returned
+solution. Convergence on Sphere does not exercise any of them.
+
+### 11.3 BDA and MODA
+
+- [x] Make BDA one swarm as required by the paper and `BDA.m`: every `i != j` is a neighbour
+      and every iteration uses the unconditional five-factor step, without DA radius or
+      Lévy branching.
+- [x] Apply V-shaped transfers by complementing the current bit and S-shaped transfers by
+      assigning zero or one from the sampled probability; add exact transition tests.
+- [x] Make paper MODA selection proportional to `1/N` and `N`, implement MATLAB's direct
+      reciprocal/density ranking in compatibility mode, and retain MOPSO exponents only in
+      the named extension.
+- [x] Copy multi-objective results immediately, establish objective arity before archive
+      mutation, and reject mixed arity, non-finite objectives, or invalid violations at the
+      public archive boundary.
+- [x] Prevent grid-key overflow and normalize extreme roulette weights stably instead of
+      silently falling back to uniform selection.
+- [x] Count only durable archive changes as stagnation improvements; reject `UseBinary` and
+      ignored `MinImprovement` settings in MODA and validate malformed export archives.
+
+**Rationale**: The released BDA update is a continuous-DA hybrid, and the released MODA
+selection constants match neither the paper nor `MODA.m`. These are variant-definition
+errors, not tuning disagreements.
+
+### 11.4 Configuration, statistics, exports, framework, and CI
+
+- [x] Reject unknown and trailing JSON configuration data and document parallel safety for
+      both objective and constraint callbacks.
+- [x] Make comparison targets support zero and negative values; preserve setup errors,
+      separate failed runs from numerical samples, and report statistical availability.
+- [x] Add exact small-sample/tie-corrected Wilcoxon, tie-corrected Friedman, and adjusted
+      pairwise significance; validate them against independent reference fixtures.
+- [x] Give non-finite/unavailable JSON values an explicit wire representation and write every
+      export through an atomic same-directory temporary file.
+- [x] Reject MODA in the single-objective builder and unsupported discrete multi-objective
+      recommendations rather than returning unusable configurations.
+- [ ] Enforce the 80% coverage gate, pinned lint/tool versions, nested example and WASM
+      builds, race tests, and security checks in CI.
+      **Progress:** coverage, golangci-lint pinning, the Go 1.23/1.26 matrix, race tests and
+      nested example/WASM builds are wired; security scanning is not yet a CI job.
+
+**Rationale**: A forgiving comparison must not turn failed runs into invented significance,
+and an exporter must not destroy the previous report before discovering that encoding failed.
+
+### 11.5 Verification and release
+
+- [x] Add paper-mode and MATLAB-mode state-transition fixtures for all three variants,
+      sequential/parallel bit-identity tests, hostile numeric/cancellation cases, and archive
+      invariant checks for every mutation.
+- [ ] Re-run the multi-seed regression and 30-dimensional ZDT studies after correction;
+      change degradation tolerances only from measured results, never merely to pass CI.
+- [ ] Update the algorithm/API/research documentation and `CHANGELOG.md`, then release the
+      corrected contracts and changed stochastic trajectories as `v0.2.0` after
+      `just check-race` and the release gates pass.
+      **Progress:** the directly affected documentation and changelog are updated; release
+      preparation intentionally remains open.
+
+**Audit baseline**: before Phase 11, `go test ./...`, `go test -short -race ./...`, and
+`go vet ./...` pass. Local lint could not start because the installed golangci-lint does not
+recognize the configured linter, which is itself why the toolchain must be pinned.
 
 ---
 

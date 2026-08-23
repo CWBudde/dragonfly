@@ -40,11 +40,14 @@ func TestUnifrndIsDeterministicForASeed(t *testing.T) {
 	}
 }
 
-func TestUnifrndAcceptsANilRNG(t *testing.T) {
-	value := unifrnd(2, 4, nil)
-	if value < 2 || value >= 4 {
-		t.Fatalf("unifrnd(nil rng) = %v, want within [2, 4)", value)
-	}
+func TestUnifrndRejectsANilRNG(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("unifrnd(nil rng) did not panic")
+		}
+	}()
+
+	unifrnd(2, 4, nil)
 }
 
 func TestUnifrndVecFillsEveryComponent(t *testing.T) {
@@ -87,10 +90,14 @@ func TestRandnHasRoughlyStandardNormalMoments(t *testing.T) {
 	}
 }
 
-func TestRandnAcceptsANilRNG(t *testing.T) {
-	if value := randn(nil); math.IsNaN(value) {
-		t.Fatal("randn(nil rng) = NaN, want a real number")
-	}
+func TestRandnRejectsANilRNG(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("randn(nil rng) did not panic")
+		}
+	}()
+
+	randn(nil)
 }
 
 func TestMaxVecMinVecAndClampVec(t *testing.T) {
@@ -270,6 +277,7 @@ func TestApplyBoundsReflect(t *testing.T) {
 		// 26 reflects to -16, then to 6, then to 4: reflection repeats until
 		// the component lands inside the box.
 		{name: "far outside reflects repeatedly", position: 26, step: 1, wantPosition: 4, wantStep: -1},
+		{name: "even number of crossings preserves step", position: 16, step: 1, wantPosition: -4, wantStep: 1},
 	}
 
 	for _, test := range tests {
@@ -287,6 +295,17 @@ func TestApplyBoundsReflect(t *testing.T) {
 				t.Errorf("step = %v, want %v", step[0], test.wantStep)
 			}
 		})
+	}
+}
+
+func TestValidateBoundsRejectsOverflowingSpan(t *testing.T) {
+	config := testConfig()
+	config.LowerBound = -math.MaxFloat64
+	config.UpperBound = math.MaxFloat64
+
+	err := validateBounds(config)
+	if err == nil || !strings.Contains(err.Error(), "upper_bound-lower_bound") {
+		t.Fatalf("validateBounds() error = %v, want non-finite span error", err)
 	}
 }
 

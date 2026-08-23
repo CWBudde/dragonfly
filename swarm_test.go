@@ -215,7 +215,8 @@ func TestWithinRadiusBoundaryAndDegenerateCases(t *testing.T) {
 		{name: "exactly on the radius counts as inside", a: []float64{0, 0}, b: []float64{3, -3}, radius: 3, want: true},
 		{name: "one component just outside", a: []float64{0, 0}, b: []float64{3, 3.0000001}, radius: 3, want: false},
 		{name: "identical positions are not neighbors", a: []float64{1, 2}, b: []float64{1, 2}, radius: 3, want: false},
-		{name: "differing in one component only", a: []float64{1, 2}, b: []float64{1, 2.5}, radius: 3, want: true},
+		{name: "shared coordinate is excluded", a: []float64{1, 2}, b: []float64{1, 2.5}, radius: 3, want: false},
+		{name: "every coordinate differs", a: []float64{1, 2}, b: []float64{1.5, 2.5}, radius: 3, want: true},
 		{name: "zero radius rejects any difference", a: []float64{1, 2}, b: []float64{1, 2.5}, radius: 0, want: false},
 		{name: "negative radius rejects everything", a: []float64{1, 2}, b: []float64{1, 3}, radius: -1, want: false},
 		{name: "mismatched dimensions", a: []float64{1, 2}, b: []float64{1, 2, 3}, radius: 10, want: false},
@@ -456,8 +457,8 @@ func TestNeighborhoodRadiusMatchesTheSchedule(t *testing.T) {
 func TestWithinRadiusIsABoxNotABall(t *testing.T) {
 	a := []float64{0, 0}
 
-	if WithinRadius(a, []float64{1.4, 0}, 1.5) != true {
-		t.Error("a point inside the box was not a neighbor")
+	if WithinRadius(a, []float64{1.4, 0}, 1.5) {
+		t.Error("a point sharing one coordinate must be excluded")
 	}
 
 	if WithinRadius(a, []float64{1.4, 1.4}, 1.5) != true {

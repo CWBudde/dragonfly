@@ -483,16 +483,19 @@ func TestComputeWeightsDiffersAcrossSeeds(t *testing.T) {
 	}
 }
 
-// TestComputeWeightsNilRNG documents that a nil rng falls back to the global
-// source rather than panicking, matching the helpers in helpers.go.
+// TestComputeWeightsNilRNG ensures missing explicit RNG threading fails at the
+// call site instead of silently using package-global state.
 func TestComputeWeightsNilRNG(t *testing.T) {
 	config := weightTestConfig()
 	config.MaxIterations = 100
 
-	weights := computeWeights(config, 0, config.MaxIterations, nil)
-	if math.IsNaN(weights.Food) || weights.Food < 0 || weights.Food > 2 {
-		t.Errorf("food with a nil rng = %v, want a value in [0, 2]", weights.Food)
-	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("computeWeights(nil rng) did not panic")
+		}
+	}()
+
+	computeWeights(config, 0, config.MaxIterations, nil)
 }
 
 func TestSingleIterationRun(t *testing.T) {

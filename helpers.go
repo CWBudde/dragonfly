@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"time"
 )
 
 // unifrnd generates a random float64 between lower and upper.
 func unifrnd(lower, upper float64, rng *rand.Rand) float64 {
 	if rng == nil {
-		return lower + rand.Float64()*(upper-lower)
+		panic("dragonfly: nil random generator")
 	}
 
 	return lower + rng.Float64()*(upper-lower)
@@ -31,7 +32,7 @@ func unifrndVec(lower, upper float64, size int, rng *rand.Rand) []float64 {
 // randn generates a normally distributed random number.
 func randn(rng *rand.Rand) float64 {
 	if rng == nil {
-		return rand.NormFloat64()
+		panic("dragonfly: nil random generator")
 	}
 
 	return rng.NormFloat64()
@@ -179,19 +180,58 @@ func applyReflectAt(position, step []float64, i int, lower, upper float64) {
 		return
 	}
 
-	for position[i] < lower || position[i] > upper {
-		if position[i] < lower {
-			position[i] = 2*lower - position[i]
-		}
+	original := position[i]
+	period := 2 * width
 
-		if position[i] > upper {
-			position[i] = 2*upper - position[i]
-		}
+	folded := math.Mod(original-lower, period)
+	if folded < 0 {
+		folded += period
 	}
 
-	if i < len(step) {
+	if folded <= width {
+		position[i] = lower + folded
+	} else {
+		position[i] = upper - (folded - width)
+	}
+
+	distanceOutside := original - upper
+	if original < lower {
+		distanceOutside = lower - original
+	}
+
+	crossings := math.Ceil(distanceOutside / width)
+	if i < len(step) && math.Mod(crossings, 2) == 1 {
 		step[i] = -step[i]
 	}
+}
+
+// resolveRandomSource selects the generator for one run. An explicit Seed is
+// authoritative and creates a fresh stream on every call. A directly supplied
+// Rand has no introspectable seed, so its result metadata is marked unknown.
+func resolveRandomSource(config *Config) (*rand.Rand, int64, bool) {
+	if config.Seed != nil {
+		seed := *config.Seed
+		config.Rand = rand.New(rand.NewSource(seed))
+
+		return config.Rand, seed, true
+	}
+
+	if config.Rand != nil {
+		return config.Rand, 0, false
+	}
+
+	seed := time.Now().UnixNano()
+	config.Rand = rand.New(rand.NewSource(seed))
+
+	return config.Rand, seed, true
+}
+
+func effectiveFidelityMode(config *Config) FidelityMode {
+	if config.FidelityMode == FidelityMATLAB {
+		return FidelityMATLAB
+	}
+
+	return FidelityPaper
 }
 
 // effectiveBoundaryMethod reports the boundary rule a run will actually use.
@@ -252,6 +292,13 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("max_workers must be non-negative, got %d", config.MaxWorkers)
 	}
 
+	switch config.FidelityMode {
+	case "", FidelityPaper, FidelityMATLAB:
+	default:
+		return fmt.Errorf("fidelity_mode must be %q or %q, got %q",
+			FidelityPaper, FidelityMATLAB, config.FidelityMode)
+	}
+
 	weightsErr := validateWeights(config)
 	if weightsErr != nil {
 		return weightsErr
@@ -304,6 +351,11 @@ func validateBounds(config *Config) error {
 	if config.LowerBound >= config.UpperBound {
 		return fmt.Errorf("lower_bound (%v) must be less than upper_bound (%v)",
 			config.LowerBound, config.UpperBound)
+	}
+
+	if !isFinite(config.UpperBound - config.LowerBound) {
+		return fmt.Errorf("upper_bound-lower_bound must be finite, got %v",
+			config.UpperBound-config.LowerBound)
 	}
 
 	return nil

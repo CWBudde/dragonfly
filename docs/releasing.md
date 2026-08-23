@@ -30,9 +30,9 @@ Beyond the obvious signature changes, three things specific to this library:
   one trajectory now produces another. This is invisible to the compiler and very visible to
   anyone who recorded a seed. `computeWeights` takes four draws whether or not the weights are
   pinned precisely so that pinning one is _not_ such a change.
-- **Resolving one of the unverified constants** — MODA's `β`, `γ`, `δ`, `NGrid`, `ArchiveSize`,
-  or BDA's `MaxStepRatio`. If checking against the reference code moves a default, say so in the
-  changelog under its own heading, not as a bullet among fixes.
+- **Changing a verified reference constant or archive policy** — including BDA's `±6` clamp,
+  MODA's archive size 100, or which named archive policy is the default. Call it out under its
+  own changelog heading, not as a bullet among fixes.
 
 ## Release checklist
 

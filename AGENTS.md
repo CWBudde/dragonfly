@@ -155,7 +155,14 @@ DA's addition.
    c. For each dragonfly i:
       i.   Scan the swarm for neighbours: per-dimension, all(dist <= r), excluding self
       ii.  Build S_i, A_i, C_i, F_i, E_i from those neighbours
-      iii. Two-branch step update:
+      iii. Paper-default step update:
+
+           if neighbours > 0:
+               use the full five-factor step; independently zero food/enemy when out of range
+           else:
+               use the Lévy walk
+
+           MATLAB compatibility mode instead uses the reference food-distance branch:
 
            if any(dist2Food > r):            # food out of range -> local swarming only
                if neighbours > 1:
@@ -176,9 +183,9 @@ DA's addition.
 4. Return Result{GlobalBest, Convergence, FuncEvalCount, Seed, TerminationReason}
 ```
 
-The two-branch structure in step (c)(iii) is the **single most important fidelity detail in
-the whole algorithm**. Collapsing it into one unconditional five-factor step produces
-something that still converges on easy functions and is measurably worse on hard ones.
+`Config.FidelityMode` makes the disagreement explicit: paper behavior is the default;
+`FidelityMATLAB` reproduces the reference separation sign, one-neighbor fallback and
+food-distance branch. Never combine pieces of both into an unnamed hybrid.
 
 ### Boundary Handling
 
@@ -230,16 +237,17 @@ Mantegna's algorithm with β = 1.5:
 Levy(x) = 0.01 · r₁·σ / |r₂|^(1/β)          r₁, r₂ ~ N(0,1)
 ```
 
-Ported from `Mayfly/levy.go`, but σ and the `0.01` scale factor must be **verified against the
-DA paper** rather than assumed identical to Mayfly's β.
+The official DA/BDA `Levy.m` files verify β `1.5`, the σ formula and scale `0.01`.
 
 ### BDA — Binary Variant (`binary.go`)
 
-ΔX is computed exactly as in the continuous case; only the position update changes:
+BDA treats every `i != j` as a neighbor and applies one unconditional five-factor step. The
+position update then depends on the transfer family:
 
 ```
 V-shaped (paper default):  T(Δx) = | Δx / sqrt(Δx² + 1) |
 x_j <- ¬x_j  if rand < T(Δx_j)   else   x_j
+S-shaped: x_j <- 1 if rand < T(Δx_j), otherwise 0
 ```
 
 A `TransferFunction` named-string type plus a registry ships the standard families:
@@ -262,15 +270,14 @@ benchmark, comparison and constraint machinery is reused unchanged.
 
 Ports Mayfly's `MultiObjectiveFunction`, `ParetoSolution`, `ParetoArchive`,
 `NewParetoArchive`, `Add` and `UpdateFromPopulation`, then adds the **hypercube grid** MODA
-needs on top: objective space is partitioned into `NGrid` hypercubes per objective, and
+needs on top. Three named archive policies are available:
 
-- **food** = roulette draw from the _least_ populated occupied hypercube, weight `1/N^β`
-- **enemy** = roulette draw from the _most_ populated hypercube, weight `N^γ`
-- **archive overflow** = delete from the most crowded hypercube, weight `N^δ`
+- `ArchivePolicyPaperSegments` (default): food `1/N`, enemy `N`
+- `ArchivePolicyMATLABDensity`: objective-span/20 density ranking from `MODA.m`
+- `ArchivePolicyMOPSOGrid`: the v0.1 exponent-weighted grid extension
 
-Proposed defaults are `β = 4, γ = 2, δ = 2, NGrid = 10, ArchiveSize = 100`. **These are
-recalled from the MOPSO lineage the paper borrows from, not read off `MODA.m` — verify every
-one before locking them in** (see Common Pitfalls #5).
+`ArchiveSize = 100` is verified against `MODA.m`. The MOPSO extension retains
+`β = 4, γ = 2, δ = 2, NGrid = 10`, but those are not MODA reference constants.
 
 `OptimizeMultiObjective` stays a separate entry point rather than overloading `Result`;
 `MultiObjectiveResult` carries the final archive, with `ExportParetoCSV` / `ExportParetoJSON`
@@ -505,17 +512,18 @@ func maximizeProfit(x []float64) float64 {
 
 Determinism is a hard requirement, not a nicety.
 
-**RNG injection.** `Config.Rand` is the injection point:
+**RNG injection.** Prefer `Config.Seed` when the seed must be reported:
 
 ```go
 config := dragonfly.NewDefaultConfig()
-config.Rand = rand.New(rand.NewSource(42))
+seed := int64(42)
+config.Seed = &seed
 result, _ := dragonfly.Optimize(config)
 ```
 
-When `Config.Rand` is nil, `OptimizeContext` creates one, **writes it back into the config**,
-and records the seed in `Result.Seed`. That makes any run reproducible after the fact: capture
-`Result.Seed`, feed it back through `Config.Rand`, get the same trajectory.
+When both fields are nil, `OptimizeContext` creates a generator and reports its seed with
+`Result.SeedKnown = true`. A directly supplied `Config.Rand` is honored, but its original seed
+is not introspectable, so `SeedKnown` is false. Supplying both `Seed` and `Rand` is rejected.
 
 **Explicit threading.** Every stochastic helper takes `rng *rand.Rand` as its last parameter.
 No package-level `rand.Float64()`, no hidden `math/rand` global. (`gosec`'s G404 is excluded
@@ -565,12 +573,10 @@ synchronously on the caller's goroutine — they must not become an RNG or order
    and code ported from Mayfly will silently apply `maxVec`/`minVec` instead. Route every
    boundary fix through `Config.BoundaryMethod`, and remember the Δx reset is half the rule.
 
-5. **The MODA hypercube parameters and the Lévy σ constant are UNVERIFIED.** PLAN.md marks
-   `β = 4, γ = 2, δ = 2, NGrid = 10, ArchiveSize = 100` as recalled from the MOPSO lineage
-   rather than read off `MODA.m`, and asks that Lévy's σ and the `0.01` scale factor be checked
-   against the DA paper rather than inherited from Mayfly. Treat all of these as open
-   questions: verify against the reference implementation before locking them in, and do not
-   cite them in documentation as settled paper values.
+5. **Do not present the legacy MOPSO exponents as MODA constants.** The audit verified Lévy
+   β/σ/scale, BDA's `±6` clamp and MODA's archive size 100 against the official packages.
+   `β = 4, γ = 2, δ = 2, NGrid = 10` belong only to `ArchivePolicyMOPSOGrid`; paper and MATLAB
+   modes use their named policies instead.
 
 6. **`WeightAuto` is `-1`, and `0` is a legitimate pinned value.** Test schedule fields against
    the sentinel, never against zero — `E = 0` means "pin the enemy weight to zero", not "use

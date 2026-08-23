@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -58,6 +59,7 @@ func monitoringResult() *Result {
 		FuncEvalCount:  120,
 		IterationCount: 3,
 		Seed:           42,
+		SeedKnown:      true,
 	}
 }
 
@@ -221,6 +223,7 @@ func TestResultExportsConvergenceJSON(t *testing.T) {
 		Seed:                     result.Seed,
 		FuncEvalCount:            result.FuncEvalCount,
 		IterationCount:           result.IterationCount,
+		SeedKnown:                result.SeedKnown,
 	}
 	if !reflect.DeepEqual(document, want) {
 		t.Errorf("JSON document = %+v, want %+v", document, want)
@@ -255,6 +258,40 @@ func TestNilResultCannotExportConvergence(t *testing.T) {
 	err = result.ExportConvergenceJSON(filepath.Join(t.TempDir(), "curve.json"))
 	if !errors.Is(err, errNilResult) {
 		t.Errorf("ExportConvergenceJSON error = %v, want %v", err, errNilResult)
+	}
+}
+
+func TestWriteExportFilePreservesExistingFileOnFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.json")
+
+	original := []byte("previous complete report\n")
+
+	writeErr := os.WriteFile(path, original, 0o600)
+	if writeErr != nil {
+		t.Fatalf("write original report: %v", writeErr)
+	}
+
+	wantErr := errors.New("encoding failed")
+
+	err := writeExportFile(path, "test report", func(writer io.Writer) error {
+		_, writeErr := writer.Write([]byte("partial replacement"))
+		if writeErr != nil {
+			return writeErr
+		}
+
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("writeExportFile() error = %v, want %v", err, wantErr)
+	}
+
+	contents, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("read preserved report: %v", readErr)
+	}
+
+	if !bytes.Equal(contents, original) {
+		t.Fatalf("existing report = %q, want %q", contents, original)
 	}
 }
 

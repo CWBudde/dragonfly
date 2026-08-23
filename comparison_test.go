@@ -40,15 +40,10 @@ func runsFromCosts(costs ...float64) []RunResult {
 //	W+ = 1+2+3+5+6+7+8                       = 32   (and W+ + W- = 36 = 8·9/2 ✓)
 //	W  = min(W+, W-)                         = 4
 //
-// Under the null hypothesis, for n = 8 non-tied pairs:
-//
-//	E[W]  = n(n+1)/4        = 8·9/4        = 18
-//	SD[W] = sqrt(n(n+1)(2n+1)/24) = sqrt(8·9·17/24) = sqrt(51) ≈ 7.14143
-//	z     = |W − E[W]|/SD[W] = 14/sqrt(51) ≈ 1.96039
-//	p     = 2(1 − Φ(z)) = erfc(z/√2)       ≈ 0.0500
-//
-// which is just below alpha = 0.05, so the difference is significant, and B --
-// the variant with the lower costs -- wins.
+// Enumerating the 2^8 possible sign assignments gives 14 assignments at
+// least as far from E[W+]=18 as the observed W+=32, hence p=14/256=0.0546875.
+// The exact test therefore correctly does not call this marginal sample
+// significant; the old uncorrected normal approximation incorrectly did.
 func TestWilcoxonSignedRankHandWorked(t *testing.T) {
 	runsA := runsFromCosts(11, 12, 13, 6, 15, 16, 17, 18)
 	runsB := runsFromCosts(10, 10, 10, 10, 10, 10, 10, 10)
@@ -59,23 +54,17 @@ func TestWilcoxonSignedRankHandWorked(t *testing.T) {
 		t.Errorf("W = %v, want 4", result.WStatistic)
 	}
 
-	// The p-value is rebuilt here from the hand-computed W and n, so the
-	// assertion does not read the implementation's arithmetic back to itself.
-	wantP := math.Erfc((14 / math.Sqrt(51)) / math.Sqrt2)
+	wantP := 14.0 / 256.0
 	if math.Abs(result.PValue-wantP) > 1e-12 {
-		t.Errorf("p = %v, want %v (2(1-Phi(14/sqrt(51))))", result.PValue, wantP)
+		t.Errorf("p = %v, want exact %v", result.PValue, wantP)
 	}
 
-	if wantP >= 0.05 || wantP <= 0.049 {
-		t.Fatalf("the hand-worked p-value drifted to %v; the example is no longer the one documented", wantP)
+	if result.Significant {
+		t.Errorf("Significant = true, want false at exact p = %v", result.PValue)
 	}
 
-	if !result.Significant {
-		t.Errorf("Significant = false, want true at p = %v", result.PValue)
-	}
-
-	if result.Winner != "B" {
-		t.Errorf("Winner = %q, want B (the variant with the lower costs)", result.Winner)
+	if result.Winner != wilcoxonTie {
+		t.Errorf("Winner = %q, want %q", result.Winner, wilcoxonTie)
 	}
 }
 
@@ -92,8 +81,8 @@ func TestWilcoxonSignedRankIsAntisymmetric(t *testing.T) {
 		t.Errorf("swapping arguments changed the statistic: %+v vs %+v", forward, reverse)
 	}
 
-	if reverse.Winner != "B" {
-		t.Errorf("reversed Winner = %q, want B", reverse.Winner)
+	if reverse.Winner != forward.Winner {
+		t.Errorf("reversed Winner = %q, want %q", reverse.Winner, forward.Winner)
 	}
 }
 
@@ -107,7 +96,7 @@ func TestWilcoxonSignedRankTiesAndDegenerateInput(t *testing.T) {
 		t.Errorf("identical samples: Winner = %q, want %q", tie.Winner, wilcoxonTie)
 	}
 
-	if tie.Significant || tie.PValue != 0 {
+	if tie.Significant || tie.PValue != 1 || !tie.Available {
 		t.Errorf("identical samples reported %+v; every pair was a tie", tie)
 	}
 
@@ -352,6 +341,18 @@ func TestCalculateAlgorithmStatisticsHandWorked(t *testing.T) {
 		}
 	}
 
+	if stats.SuccessfulRuns != len(runs) || stats.FailedRuns != 0 {
+		t.Errorf("run counts = %d successful/%d failed, want %d/0",
+			stats.SuccessfulRuns, stats.FailedRuns, len(runs))
+	}
+
+	mixed := append(runsFromCosts(1, 3), RunResult{BestCost: math.Inf(1), Error: "boom"})
+
+	mixedStats := calculateAlgorithmStatistics(mixed, 0, true)
+	if mixedStats.Mean != 2 || mixedStats.SuccessfulRuns != 2 || mixedStats.FailedRuns != 1 {
+		t.Errorf("mixed statistics = %+v, want mean 2 over two successes and one failure", mixedStats)
+	}
+
 	// An odd count takes the middle element rather than an average.
 	if got := calculateAlgorithmStatistics(runsFromCosts(1, 5, 9), 0).Median; got != 5 {
 		t.Errorf("odd-count median = %v, want 5", got)
@@ -538,6 +539,11 @@ func TestComparisonValidation(t *testing.T) {
 		if err == nil {
 			t.Errorf("%s: CompareContext returned no error", test.name)
 		}
+	}
+
+	legacy := comparisonRunnerForTest().WithRuns(0).Compare("Sphere", Sphere, 3, -1, 1)
+	if legacy == nil || legacy.Error == "" {
+		t.Error("Compare hid its validation error")
 	}
 
 	//nolint:staticcheck // passing a nil context is exactly what is under test.
@@ -786,11 +792,21 @@ func TestComparisonRunnerOptionSettersAssignTheirField(t *testing.T) {
 		t.Errorf("WithTarget(1e-8) left TargetCost = %v, want 1e-8", runner.TargetCost)
 	}
 
-	// Zero is a legitimate setting: it disables the success threshold.
+	// Zero is a legitimate threshold and differs from never calling WithTarget.
 	runner.WithTarget(0)
 
 	if runner.TargetCost != 0 {
 		t.Errorf("WithTarget(0) left TargetCost = %v, want 0", runner.TargetCost)
+	}
+
+	if !runner.targetEnabled() {
+		t.Error("WithTarget(0) did not enable the zero threshold")
+	}
+
+	runner.WithTarget(-1)
+
+	if !runner.targetEnabled() || runner.TargetCost != -1 {
+		t.Error("WithTarget(-1) did not enable a negative threshold")
 	}
 
 	if got := runner.WithVerbose(true); got != runner {
@@ -1041,4 +1057,15 @@ func TestExecuteJobFailureAndTargetPaths(t *testing.T) {
 			t.Errorf("ConvergenceAt = %d, want 0 when the target is never reached", got.run.ConvergenceAt)
 		}
 	})
+}
+
+func TestFailedRunSerializesUnavailableCostAsNull(t *testing.T) {
+	data, err := json.Marshal(RunResult{BestCost: math.Inf(1), Error: "objective failed"})
+	if err != nil {
+		t.Fatalf("json.Marshal failed RunResult: %v", err)
+	}
+
+	if !bytes.Contains(data, []byte(`"best_cost":null`)) {
+		t.Errorf("failed RunResult JSON = %s, want best_cost:null", data)
+	}
 }

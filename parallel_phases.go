@@ -66,14 +66,28 @@ func prepareSwarmStep(state *runState, index int, config *Config, weights weight
 	separation := separationVector(state.swarm, index, neighbors)
 	alignment := alignmentVector(state.swarm, index, neighbors)
 	cohesion := cohesionVector(state.swarm, index, neighbors)
-	food := foodVector(fly.Position, state.food.Position)
-	enemy := enemyVector(fly.Position, state.enemy.Position)
+	foodInRange := referenceInRadius(fly.Position, state.food.Position, weights.Radius)
+	enemyInRange := referenceInRadius(fly.Position, state.enemy.Position, weights.Radius)
+	food := make([]float64, len(fly.Position))
+
+	enemy := make([]float64, len(fly.Position))
+	if foodInRange {
+		food = foodVector(fly.Position, state.food.Position)
+	}
+
+	if enemyInRange {
+		enemy = enemyVector(fly.Position, state.enemy.Position)
+	}
 
 	switch {
-	case foodInRadius(fly.Position, state.food.Position, weights.Radius):
+	case effectiveFidelityMode(config) == FidelityMATLAB:
+		prepareMATLABStep(fly, config, weights, neighbors, separation, alignment, cohesion,
+			food, enemy, foodInRange, rng)
+	case len(neighbors) > 0:
+		// The paper applies the five-factor update whenever the dragonfly has
+		// a neighbor. Food and enemy are independently zeroed when out of
+		// range; neither controls which branch is taken.
 		applyFullStep(fly, weights, separation, alignment, cohesion, food, enemy)
-	case len(neighbors) > 1:
-		applySwarmingStep(fly, weights, separation, alignment, cohesion, rng)
 	default:
 		prepareLevyStep(fly, config, rng)
 	}
@@ -81,6 +95,38 @@ func prepareSwarmStep(state *runState, index int, config *Config, weights weight
 	sanitizeVec(fly.Position, config.LowerBound, config.UpperBound, rng)
 	applyBounds(fly.Position, fly.Step, config.LowerBound, config.UpperBound,
 		effectiveBoundaryMethod(config), rng)
+}
+
+// prepareMATLABStep reproduces the reference implementation's departures from
+// the paper: primitives require more than one neighbor, separation has the
+// opposite sign, and food distance selects the local-swarming branch.
+func prepareMATLABStep(
+	fly *Dragonfly,
+	config *Config,
+	weights weightSchedule,
+	neighbors []int,
+	separation, alignment, cohesion, food, enemy []float64,
+	foodInRange bool,
+	rng *rand.Rand,
+) {
+	if len(neighbors) <= 1 {
+		clear(separation)
+
+		alignment = copyVec(fly.Step)
+
+		clear(cohesion)
+	} else {
+		swarmScale(separation, -1)
+	}
+
+	switch {
+	case foodInRange:
+		applyFullStep(fly, weights, separation, alignment, cohesion, food, enemy)
+	case len(neighbors) > 1:
+		applySwarmingStep(fly, weights, separation, alignment, cohesion, rng)
+	default:
+		prepareLevyStep(fly, config, rng)
+	}
 }
 
 // applyFullStep is the food-in-range branch: the five-factor step of the paper,

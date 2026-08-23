@@ -4,6 +4,7 @@
 package dragonfly
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -11,6 +12,11 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrUnsupportedProblemClass reports a problem that needs a variant the
+// library does not implement. In particular, MODA is continuous and BDA is
+// single-objective; neither can solve a discrete multi-objective problem.
+var ErrUnsupportedProblemClass = errors.New("discrete multi-objective problems are not supported")
 
 // Modality describes how many optima the landscape has.
 type Modality int
@@ -117,6 +123,10 @@ type AlgorithmRecommendation struct {
 	// Variant is the recommended variant.
 	Variant AlgorithmVariant
 
+	// Error is non-nil when no implemented variant can solve the requested
+	// problem class. Variant is nil in that case.
+	Error error
+
 	// Reason explains, in one line, why this variant scored as it did.
 	Reason string
 
@@ -157,6 +167,10 @@ func NewAlgorithmSelectorFor(variants ...AlgorithmVariant) *AlgorithmSelector {
 func (s *AlgorithmSelector) RecommendAlgorithms(
 	characteristics ProblemCharacteristics,
 ) []AlgorithmRecommendation {
+	if characteristics.Discrete && characteristics.MultiObjective {
+		return nil
+	}
+
 	preset := RecommendPreset(characteristics)
 	recommendations := make([]AlgorithmRecommendation, 0, len(s.variants))
 
@@ -186,6 +200,15 @@ func (s *AlgorithmSelector) RecommendAlgorithms(
 func (s *AlgorithmSelector) RecommendBest(
 	characteristics ProblemCharacteristics,
 ) AlgorithmRecommendation {
+	if characteristics.Discrete && characteristics.MultiObjective {
+		return AlgorithmRecommendation{
+			Reason:     ErrUnsupportedProblemClass.Error(),
+			Preset:     PresetDefault,
+			Confidence: 1,
+			Error:      ErrUnsupportedProblemClass,
+		}
+	}
+
 	recommendations := s.RecommendAlgorithms(characteristics)
 	if len(recommendations) == 0 {
 		return AlgorithmRecommendation{
@@ -210,6 +233,8 @@ func (s *AlgorithmSelector) RecommendBest(
 // decides second.
 func RecommendPreset(characteristics ProblemCharacteristics) ConfigPreset {
 	switch {
+	case characteristics.Discrete && characteristics.MultiObjective:
+		return PresetDefault
 	case characteristics.Discrete:
 		return PresetBinary
 	case characteristics.Dimensionality >= highDimensionalThreshold:
@@ -413,6 +438,38 @@ func ClassifyProblem(
 	lower, upper float64,
 	rng *rand.Rand,
 ) ProblemCharacteristics {
+	characteristics, _ := ClassifyProblemChecked(fn, size, lower, upper, rng)
+
+	return characteristics
+}
+
+// ClassifyProblemChecked is ClassifyProblem with input validation. Prefer it
+// when the objective or bounds are supplied dynamically; the legacy wrapper
+// returns only the partially known dimensionality when validation fails.
+func ClassifyProblemChecked(
+	fn ObjectiveFunction,
+	size int,
+	lower, upper float64,
+	rng *rand.Rand,
+) (ProblemCharacteristics, error) {
+	if fn == nil {
+		return ProblemCharacteristics{Dimensionality: size}, errors.New("classification objective function is required")
+	}
+
+	if size <= 0 {
+		return ProblemCharacteristics{Dimensionality: size},
+			fmt.Errorf("classification problem size must be positive, got %d", size)
+	}
+
+	if !isFinite(lower) || !isFinite(upper) {
+		return ProblemCharacteristics{Dimensionality: size}, errors.New("classification bounds must be finite")
+	}
+
+	if lower >= upper {
+		return ProblemCharacteristics{Dimensionality: size},
+			fmt.Errorf("classification lower bound %v must be less than upper bound %v", lower, upper)
+	}
+
 	if rng == nil {
 		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 	}
@@ -425,7 +482,7 @@ func ClassifyProblem(
 		Modality:                  modalityFromTurningPoints(turningPoints),
 		Landscape:                 landscapeFromRoughness(roughness),
 		RequiresStableConvergence: stability < 0.5,
-	}
+	}, nil
 }
 
 // modalityFromTurningPoints maps the average number of direction changes per

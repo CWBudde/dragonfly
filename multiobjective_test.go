@@ -2,10 +2,9 @@ package dragonfly
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/csv"
 	"encoding/json"
-	"hash/fnv"
+	"errors"
 	"log/slog"
 	"math"
 	"math/rand"
@@ -410,7 +409,7 @@ func newMultiObjectiveTestConfig(objective MultiObjectiveFunction, dims, iterati
 	config.Swarm.UpperBound = 1
 	config.Swarm.NPop = 30
 	config.Swarm.MaxIterations = iterations
-	config.Swarm.Rand = rand.New(rand.NewSource(seed))
+	config.Swarm.Seed = &seed
 
 	return config
 }
@@ -570,18 +569,18 @@ func frontSpreadAndErrors(archive *ParetoArchive, front func(f1 float64) float64
 
 	minF1 := math.Inf(1)
 	maxF1 := math.Inf(-1)
-	errors := make([]float64, 0, archive.Len())
+	distances := make([]float64, 0, archive.Len())
 
 	for _, solution := range archive.Solutions {
 		f1 := solution.ObjectiveValues[0]
 		minF1 = math.Min(minF1, f1)
 		maxF1 = math.Max(maxF1, f1)
-		errors = append(errors, math.Abs(solution.ObjectiveValues[1]-front(f1)))
+		distances = append(distances, math.Abs(solution.ObjectiveValues[1]-front(f1)))
 	}
 
-	sort.Float64s(errors)
+	sort.Float64s(distances)
 
-	return maxF1 - minF1, errors[0], errors[len(errors)/2]
+	return maxF1 - minF1, distances[0], distances[len(distances)/2]
 }
 
 // assertNearFront is the shared body of the two ZDT convergence checks.
@@ -621,6 +620,10 @@ func TestOptimizeMultiObjectiveZDT1(t *testing.T) {
 	}
 
 	config := newMultiObjectiveTestConfig(ZDT1, 5, 400, 4242)
+	// These thresholds were measured from the released MATLAB-control-flow /
+	// MOPSO-grid trajectory. Paper-mode baselines require a new multi-seed study.
+	config.ArchivePolicy = ArchivePolicyMOPSOGrid
+	config.Swarm.FidelityMode = FidelityMATLAB
 	config.Swarm.NPop = 60
 
 	result, err := OptimizeMultiObjective(context.Background(), config)
@@ -643,6 +646,10 @@ func TestOptimizeMultiObjectiveZDT3(t *testing.T) {
 	}
 
 	config := newMultiObjectiveTestConfig(ZDT3, 5, 400, 4242)
+	// Preserve the provenance of the released regression thresholds; do not
+	// relabel one observed paper-mode run as a new baseline.
+	config.ArchivePolicy = ArchivePolicyMOPSOGrid
+	config.Swarm.FidelityMode = FidelityMATLAB
 	config.Swarm.NPop = 60
 
 	result, err := OptimizeMultiObjective(context.Background(), config)
@@ -739,7 +746,8 @@ func TestExportParetoRoundTrip(t *testing.T) {
 			document.ArchiveSize, len(document.Front), result.Archive.Len())
 	}
 
-	if document.Seed != result.Seed || document.IterationCount != result.IterationCount {
+	if document.Seed != result.Seed || document.SeedKnown != result.SeedKnown ||
+		document.IterationCount != result.IterationCount {
 		t.Error("JSON summary does not match the result it was exported from")
 	}
 
@@ -1268,202 +1276,59 @@ func TestOptimizeMultiObjectiveParallelHonoursCancellation(t *testing.T) {
 	}
 }
 
-// --- archive hot-path guard --------------------------------------------------
-
-// archiveSnapshotEntry is one expected archive member: the objective vector it
-// scored and the position it scored it at, to the last bit.
-type archiveSnapshotEntry struct {
-	objectives []float64
-	position   []float64
-}
-
-// TestMODAArchiveSnapshotIsExact pins two whole MODA runs -- archive length,
-// every objective value, every position component, and the evaluation count --
-// against values recorded from the implementation.
-//
-// It exists to guard optimizations of the archive hot path (updateGrid,
-// gridIndexFor, occupiedCells, evictOverflow). Those are allowed to be faster;
-// they are not allowed to move a single float. A statistical "still converges"
-// check cannot tell a behavior-preserving rewrite from one that quietly
-// perturbs the roulette draws, so the expectations here are exact.
-//
-// The archive capacity is deliberately small: it puts the run at capacity
-// within the first few iterations, so almost every accepted insert exercises
-// the eviction path the guard is protecting.
-func TestMODAArchiveSnapshotIsExact(t *testing.T) {
-	cases := []struct {
-		name      string
-		objective MultiObjectiveFunction
-		expected  []archiveSnapshotEntry
-		seed      int64
-		dimension int
-		evals     int
-	}{
-		{
-			name:      "SchafferN1",
-			objective: SchafferN1,
-			seed:      7,
-			dimension: 5,
-			evals:     520,
-			expected: []archiveSnapshotEntry{
-				{objectives: []float64{0.30423176614128133, 2.0979434218262187}, position: []float64{0.5515720860787657, 0.46804001151644203, 0.6795366511067592, 0.21477164461640177, 0.6145143211679571}},
-				{objectives: []float64{0.3062174462258976, 2.0927407376033824}, position: []float64{0.5533691771556287, 0.4813055374930016, 0.6808319401673102, 0.21212351634986365, 0.6008583035455868}},
-				{objectives: []float64{0.3080619692426822, 2.0879287507436404}, position: []float64{0.5550333046247605, 0.46756744819814283, 0.662292431337953, 0.21018234378508105, 0.6006206784303945}},
-				{objectives: []float64{0.30079872155481974, 2.1069939114413234}, position: []float64{0.5484512025283742, 0.49009741341912466, 0.6775966739188822, 0.21264859759006954, 0.6053285212949874}},
-				{objectives: []float64{0.2926591665374367, 2.1287398832463555}, position: []float64{0.5409798208227703, 0.4943754583975452, 0.678030678326671, 0.20239513606752227, 0.6092076742075283}},
-				{objectives: []float64{0.2953198412562358, 2.1215863111059154}, position: []float64{0.54343338253758, 0.49122281902556103, 0.6714734370500087, 0.2100880720206755, 0.6098035015319679}},
-				{objectives: []float64{0.29539128309669666, 2.1213948411614423}, position: []float64{0.5434991104838136, 0.4966239758362369, 0.6677542884509475, 0.21221438494900924, 0.6028457198444961}},
-				{objectives: []float64{0.29159205017097134, 2.131621494182872}, position: []float64{0.539992638997025, 0.48740944723244656, 0.6647494569012788, 0.20090093704649792, 0.5956089224360328}},
-				{objectives: []float64{0.29859947977447426, 2.1128292090480216}, position: []float64{0.546442567681613, 0.4796874789434949, 0.6716248041785667, 0.21154477227367166, 0.6047447107336522}},
-				{objectives: []float64{0.2928036319505383, 2.128350326561713}, position: []float64{0.5411133263472064, 0.47984121193746915, 0.6626929720224928, 0.21178154756583667, 0.6086623716987133}},
-				{objectives: []float64{0.2934166765177614, 2.1266986920342745}, position: []float64{0.5416794961208716, 0.49674755813176696, 0.6764715064240976, 0.2121626764356754, 0.6051201908056573}},
-				{objectives: []float64{0.29154558717886203, 2.131747125548288}, position: []float64{0.5399496154076434, 0.48998038664570076, 0.6764440285619684, 0.21370283129245743, 0.6088315508421476}},
-			},
-		},
-		{
-			name:      "ZDT1",
-			objective: ZDT1,
-			seed:      11,
-			dimension: 10,
-			evals:     520,
-			expected: []archiveSnapshotEntry{
-				{objectives: []float64{0.4433900480956048, 1.5740481612948538}, position: []float64{0.4433900480956048, 0.28678186613095047, 0.0812734326352172, 0.036390573293491435, 0.1017737645736367, 0.08822850388382285, 0.14578397920298433, 0.27385374380909994, 0.030017020205046624, 0.6159700845205075}},
-				{objectives: []float64{0.09828927385836907, 3.5089877516428993}, position: []float64{0.09828927385836907, 0.47596475876568195, 0.013403278893138826, 0.12551691671220208, 0.30642530387219896, 0.322447941763958, 0.2980484817055904, 0.47395299411229164, 0.6335840660181955, 0.49811966867302554}},
-				{objectives: []float64{0.30022655415794386, 2.6774210967666323}, position: []float64{0.30022655415794386, 0.3121455370219737, 0.3047289857312522, 0.2500738635089771, 0.20410198637853372, 0.08798487736756758, 0.1645028217955363, 0.38993678179445335, 0.2076408373604913, 0.8154659346110715}},
-				{objectives: []float64{0.25667960259308575, 2.8435479241078196}, position: []float64{0.25667960259308575, 0.24612279824664457, 0.34771331156814, 0.29712005656311286, 0.23640499705259282, 0.1344128315582658, 0.1136378999162978, 0.4318192526435239, 0.2371766346917772, 0.7913965223030032}},
-				{objectives: []float64{0.20832351333720156, 3.138185133964405}, position: []float64{0.20832351333720156, 0.32003771935516057, 0.349510918955295, 0.22080664654035048, 0.2797249809450564, 0.06383217301925109, 0.2175285526902182, 0.4980117464563262, 0.24274214052968635, 0.865386594432139}},
-				{objectives: []float64{0.21154108525592072, 3.0369181538303005}, position: []float64{0.21154108525592072, 0.3143381170623174, 0.35040937092200225, 0.21768597093972597, 0.2807853558898025, 0.058335514653863066, 0.12075203824673475, 0.5013688618709327, 0.24238746193969254, 0.8650939200556652}},
-				{objectives: []float64{0.40676900201041166, 2.1594704009066055}, position: []float64{0.40676900201041166, 0.3595790533404033, 0.20320474320987217, 0.12080664654035048, 0.15193863812675285, 0.18242869431044734, 0.1847199424784302, 0.3867174496742498, 0.09016237420497789, 0.6423442176391031}},
-				{objectives: []float64{0.4067942843391287, 2.113691383082108}, position: []float64{0.4067942843391287, 0.3596016197597991, 0.20145080752459785, 0.1180031472096435, 0.15208750933080362, 0.10000000000000014, 0.21536704722785383, 0.38738253095704595, 0.08997714683662508, 0.6425384575554676}},
-				{objectives: []float64{0.40702157487352286, 2.08710423111403}, position: []float64{0.40702157487352286, 0.3595814211963495, 0.201820190668941, 0.1190066754556918, 0.15166327999655482, 0.10000000000000014, 0.1847199424784302, 0.38556690498882046, 0.08981526768974576, 0.642323262842713}},
-				{objectives: []float64{0.4308962982442507, 2.0816256412136767}, position: []float64{0.4308962982442507, 0.38237601439570873, 0.17859701763495853, 0.09675384270297643, 0.13963613155176618, 0.18515915960409793, 0.21903459525376373, 0.38265811306139136, 0.06589562693503928, 0.6182421822486764}},
-				{objectives: []float64{0.3308962982442507, 2.4134447582932688}, position: []float64{0.3308962982442507, 0.2823760143957087, 0.27859701763495853, 0.19675384270297644, 0.2396361315517662, 0.08515915960409792, 0.1257331734549081, 0.395330340780373, 0.1658956269350393, 0.7182421822486764}},
-				{objectives: []float64{0.3309792112146056, 2.3656646732783484}, position: []float64{0.3309792112146056, 0.28192013869912047, 0.27962410645936564, 0.19588401890760904, 0.2406575019388174, 0.029879558588713967, 0.1257331734549081, 0.395888505092255, 0.1634286157232075, 0.718345656841822}},
-			},
-		},
+// TestMODAArchivePoliciesRemainDeterministic replaces the obsolete v0.1.0
+// trajectory golden. Fidelity changes are expected to change trajectories;
+// what must remain exact is reproducibility within each named policy.
+func TestMODAArchivePoliciesRemainDeterministic(t *testing.T) {
+	policies := []ArchivePolicy{
+		ArchivePolicyPaperSegments,
+		ArchivePolicyMATLABDensity,
+		ArchivePolicyMOPSOGrid,
 	}
 
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			result, err := runSnapshotMODA(testCase.objective, testCase.dimension, testCase.seed, 12)
+	for _, policy := range policies {
+		t.Run(string(policy), func(t *testing.T) {
+			first, err := runPolicyMODA(ZDT1, 10, 11, 12, policy)
 			if err != nil {
-				t.Fatalf("OptimizeMultiObjective returned %v", err)
+				t.Fatalf("first run: %v", err)
 			}
 
-			if result.FuncEvalCount != testCase.evals {
-				t.Errorf("FuncEvalCount = %d, want %d", result.FuncEvalCount, testCase.evals)
+			second, err := runPolicyMODA(ZDT1, 10, 11, 12, policy)
+			if err != nil {
+				t.Fatalf("second run: %v", err)
 			}
 
-			solutions := result.Archive.Solutions
-			if len(solutions) != len(testCase.expected) {
-				t.Fatalf("archive length = %d, want %d", len(solutions), len(testCase.expected))
+			if !reflect.DeepEqual(first.Archive.Solutions, second.Archive.Solutions) {
+				t.Fatal("same seed and archive policy produced different fronts")
 			}
 
-			for i, want := range testCase.expected {
-				assertFloatsIdentical(t, i, "objectives", solutions[i].ObjectiveValues, want.objectives)
-				assertFloatsIdentical(t, i, "position", solutions[i].Position, want.position)
+			if !first.Archive.IsNonDominated() || first.Archive.Len() > 12 {
+				t.Fatalf("invalid final archive: length=%d, non-dominated=%v",
+					first.Archive.Len(), first.Archive.IsNonDominated())
 			}
 		})
 	}
 }
 
-// TestMODAArchiveSnapshotIsExactAtDefaultCapacity is the same guard at the
-// default capacity of 100, where the archive holds too many members to write
-// out one by one. The check is a hash over the IEEE bits of every objective
-// value and every position component, in archive order, so it still fails on a
-// single perturbed float -- it just cannot say which one. Run the small-capacity
-// guard above first when it trips.
-func TestMODAArchiveSnapshotIsExactAtDefaultCapacity(t *testing.T) {
-	cases := []struct {
-		name      string
-		objective MultiObjectiveFunction
-		seed      int64
-		digest    uint64
-		dimension int
-		length    int
-		evals     int
-	}{
-		{name: "SchafferN1", objective: SchafferN1, dimension: 5, seed: 7, length: 100, evals: 520, digest: 0xb07cc073f238f1cc},
-		{name: "ZDT1", objective: ZDT1, dimension: 10, seed: 11, length: 27, evals: 520, digest: 0xdbf734a08d9f1109},
-	}
-
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			result, err := runSnapshotMODA(testCase.objective, testCase.dimension, testCase.seed, DefaultArchiveSize)
-			if err != nil {
-				t.Fatalf("OptimizeMultiObjective returned %v", err)
-			}
-
-			if result.FuncEvalCount != testCase.evals {
-				t.Errorf("FuncEvalCount = %d, want %d", result.FuncEvalCount, testCase.evals)
-			}
-
-			if got := result.Archive.Len(); got != testCase.length {
-				t.Errorf("archive length = %d, want %d", got, testCase.length)
-			}
-
-			if got := archiveDigest(result.Archive); got != testCase.digest {
-				t.Errorf("archive digest = %#016x, want %#016x", got, testCase.digest)
-			}
-		})
-	}
-}
-
-// runSnapshotMODA runs the fixed configuration both snapshot guards share.
-func runSnapshotMODA(objective MultiObjectiveFunction, dimension int, seed int64, archiveSize int) (*MultiObjectiveResult, error) {
+func runPolicyMODA(
+	objective MultiObjectiveFunction,
+	dimension int,
+	seed int64,
+	archiveSize int,
+	policy ArchivePolicy,
+) (*MultiObjectiveResult, error) {
 	config := NewMultiObjectiveConfig()
 	config.ObjectiveFunc = objective
+	config.ArchivePolicy = policy
 	config.ArchiveSize = archiveSize
 	config.Swarm.ProblemSize = dimension
 	config.Swarm.LowerBound = 0
 	config.Swarm.UpperBound = 1
 	config.Swarm.MaxIterations = 25
 	config.Swarm.NPop = 20
-	config.Swarm.Rand = rand.New(rand.NewSource(seed))
+	config.Swarm.Seed = &seed
 
 	return OptimizeMultiObjective(context.Background(), config)
-}
-
-// assertFloatsIdentical compares two float slices bit for bit. The guard wants
-// identity, not closeness, so there is no tolerance here on purpose.
-func assertFloatsIdentical(t *testing.T, member int, field string, got, want []float64) {
-	t.Helper()
-
-	if len(got) != len(want) {
-		t.Errorf("member %d %s has length %d, want %d", member, field, len(got), len(want))
-
-		return
-	}
-
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("member %d %s[%d] = %v, want %v", member, field, i, got[i], want[i])
-		}
-	}
-}
-
-// archiveDigest hashes the IEEE bits of every objective value and position
-// component in archive order.
-func archiveDigest(archive *ParetoArchive) uint64 {
-	digest := fnv.New64a()
-	scratch := make([]byte, 8)
-
-	write := func(value float64) {
-		binary.LittleEndian.PutUint64(scratch, math.Float64bits(value))
-		_, _ = digest.Write(scratch)
-	}
-
-	for _, solution := range archive.Solutions {
-		for _, value := range solution.ObjectiveValues {
-			write(value)
-		}
-
-		for _, value := range solution.Position {
-			write(value)
-		}
-	}
-
-	return digest.Sum64()
 }
 
 // TestOptimizeMultiObjectiveNotifiesArchiveObserver pins where the observer
@@ -1816,5 +1681,274 @@ func TestParetoArchiveGridBoundsReturnsCopies(t *testing.T) {
 				t.Fatalf("grid index %d on objective %d is outside [0, %d)", index, m, archive.NGrid)
 			}
 		}
+	}
+}
+
+func TestParetoArchiveRejectsMalformedPublicCandidates(t *testing.T) {
+	archive := NewParetoArchive(10)
+	if !archive.Add(&ParetoSolution{ObjectiveValues: []float64{1, 2}}, nil) {
+		t.Fatal("valid initial solution was rejected")
+	}
+
+	tests := []struct {
+		name      string
+		candidate *ParetoSolution
+	}{
+		{name: "mixed arity", candidate: &ParetoSolution{ObjectiveValues: []float64{1}}},
+		{name: "NaN objective", candidate: &ParetoSolution{ObjectiveValues: []float64{math.NaN(), 1}}},
+		{name: "infinite objective", candidate: &ParetoSolution{ObjectiveValues: []float64{math.Inf(1), 1}}},
+		{name: "negative violation", candidate: &ParetoSolution{ObjectiveValues: []float64{0, 3}, ConstraintViolation: -1}},
+		{name: "NaN violation", candidate: &ParetoSolution{ObjectiveValues: []float64{0, 3}, ConstraintViolation: math.NaN()}},
+		{name: "infinite violation", candidate: &ParetoSolution{ObjectiveValues: []float64{0, 3}, ConstraintViolation: math.Inf(1)}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if archive.Add(test.candidate, nil) {
+				t.Fatal("malformed candidate was accepted")
+			}
+
+			if archive.Len() != 1 {
+				t.Fatalf("rejected candidate mutated archive to length %d", archive.Len())
+			}
+		})
+	}
+}
+
+func TestParetoArchiveAcceptanceReflectsDurableChange(t *testing.T) {
+	archive := NewParetoArchive(2)
+	first := &ParetoSolution{ObjectiveValues: []float64{0, 2}}
+
+	second := &ParetoSolution{ObjectiveValues: []float64{2, 0}}
+	if !archive.Add(first, nil) || !archive.Add(second, nil) {
+		t.Fatal("setup insertion failed")
+	}
+
+	before := append([]*ParetoSolution(nil), archive.Solutions...)
+	if archive.Add(&ParetoSolution{ObjectiveValues: []float64{3, -1}}, nil) {
+		t.Fatal("Add reported acceptance after overflow immediately evicted the candidate")
+	}
+
+	if !sameSolutionSequence(before, archive.Solutions) {
+		t.Fatal("candidate eviction did not restore the prior archive membership")
+	}
+
+	if !archive.Add(&ParetoSolution{ObjectiveValues: []float64{1, -1}}, nil) {
+		t.Fatal("Add missed a durable change that removed a dominated member")
+	}
+}
+
+func TestMATLABDensityRanksUseStrictSpanTwentieth(t *testing.T) {
+	archive := newParetoArchive(10, 10, 1, 1, 1, ArchivePolicyMATLABDensity)
+	for _, values := range [][]float64{{0, 20}, {0.5, 19.5}, {1, 19}, {20, 0}} {
+		if !archive.Add(&ParetoSolution{ObjectiveValues: values}, nil) {
+			t.Fatalf("failed to add %v", values)
+		}
+	}
+
+	// Radius is exactly one in both objectives. The first two points are
+	// neighbors; the point at distance exactly one is excluded by MATLAB's <.
+	want := []int{2, 3, 2, 1}
+	if got := archive.densityRanks(); !reflect.DeepEqual(got, want) {
+		t.Errorf("density ranks = %v, want %v", got, want)
+	}
+}
+
+func TestArchivePolicyDefaultsFollowFidelityMode(t *testing.T) {
+	config := NewMultiObjectiveConfig()
+	if got := effectiveArchivePolicy(config); got != ArchivePolicyPaperSegments {
+		t.Errorf("default policy = %q, want %q", got, ArchivePolicyPaperSegments)
+	}
+
+	config.Swarm.FidelityMode = FidelityMATLAB
+	if got := effectiveArchivePolicy(config); got != ArchivePolicyMATLABDensity {
+		t.Errorf("MATLAB policy = %q, want %q", got, ArchivePolicyMATLABDensity)
+	}
+
+	config.ArchivePolicy = ArchivePolicyMOPSOGrid
+	if got := effectiveArchivePolicy(config); got != ArchivePolicyMOPSOGrid {
+		t.Errorf("explicit policy = %q, want %q", got, ArchivePolicyMOPSOGrid)
+	}
+}
+
+func TestGridKeyDoesNotOverflowForManyObjectives(t *testing.T) {
+	archive := NewParetoArchive(10)
+	first := make([]float64, 128)
+
+	second := make([]float64, 128)
+	for i := range second {
+		if i%2 == 0 {
+			first[i] = 0
+			second[i] = 1
+		} else {
+			first[i] = 1
+			second[i] = 0
+		}
+	}
+
+	if !archive.Add(&ParetoSolution{ObjectiveValues: first}, nil) ||
+		!archive.Add(&ParetoSolution{ObjectiveValues: second}, nil) {
+		t.Fatal("failed to build many-objective archive")
+	}
+
+	for _, solution := range archive.Solutions {
+		if solution.GridKey >= 0 {
+			t.Errorf("128-objective key %d did not take checked hash fallback", solution.GridKey)
+		}
+	}
+
+	if cells := archive.occupiedCells(); len(cells) != 2 {
+		t.Errorf("overflow-safe grid produced %d occupied cells, want 2", len(cells))
+	}
+}
+
+func TestRouletteSelectionRemainsBiasedAtExtremeExponent(t *testing.T) {
+	archive := newSelectionArchive(t)
+	archive.Policy = ArchivePolicyMOPSOGrid
+	archive.Gamma = 1e300
+
+	rng := rand.New(rand.NewSource(91))
+	for range 100 {
+		if !isClustered(archive.selectCrowded(rng)) {
+			t.Fatal("overflow-scale exponent fell back to uniform selection")
+		}
+	}
+}
+
+func TestScorePositionsCopiesReusableObjectiveBuffer(t *testing.T) {
+	shared := make([]float64, 2)
+	config := NewMultiObjectiveConfig()
+	config.ObjectiveFunc = func(x []float64) []float64 {
+		shared[0], shared[1] = x[0], 1-x[0]
+
+		return shared
+	}
+
+	state := &moState{
+		swarm:  []Dragonfly{{Position: []float64{0.25}}, {Position: []float64{0.75}}},
+		scores: make([]moEvaluation, 2),
+	}
+
+	err := state.scorePositions(context.Background(), config)
+	if err != nil {
+		t.Fatalf("scorePositions: %v", err)
+	}
+
+	if !reflect.DeepEqual(state.scores[0].values, []float64{0.25, 0.75}) ||
+		!reflect.DeepEqual(state.scores[1].values, []float64{0.75, 0.25}) {
+		t.Fatalf("callback result slices aliased: %v / %v",
+			state.scores[0].values, state.scores[1].values)
+	}
+}
+
+func TestEvaluateSwarmValidatesFirstBatchBeforeArchiveMutation(t *testing.T) {
+	calls := 0
+	config := NewMultiObjectiveConfig()
+	config.ObjectiveFunc = func([]float64) []float64 {
+		calls++
+		if calls == 1 {
+			return []float64{1, 2}
+		}
+
+		return []float64{1}
+	}
+
+	state := &moState{
+		archive: NewParetoArchive(10),
+		swarm:   []Dragonfly{{Position: []float64{0}}, {Position: []float64{1}}},
+		scores:  make([]moEvaluation, 2),
+	}
+
+	_, err := state.evaluateSwarm(context.Background(), config, nil)
+	if err == nil {
+		t.Fatal("mixed first-batch objective arity was accepted")
+	}
+
+	if state.archive.Len() != 0 {
+		t.Fatalf("arity error partially mutated archive to length %d", state.archive.Len())
+	}
+}
+
+func TestParetoExportRejectsNilArchiveMembers(t *testing.T) {
+	dir := t.TempDir()
+
+	result := &MultiObjectiveResult{}
+
+	err := result.ExportParetoJSON(filepath.Join(dir, "nil-archive.json"))
+	if !errors.Is(err, errNilParetoArchive) {
+		t.Fatalf("nil archive error = %v, want %v", err, errNilParetoArchive)
+	}
+
+	result.Archive = NewParetoArchive(10)
+
+	result.Archive.Solutions = append(result.Archive.Solutions, nil)
+
+	err = result.ExportParetoCSV(filepath.Join(dir, "nil-member.csv"))
+	if !errors.Is(err, errNilParetoSolution) {
+		t.Fatalf("nil member error = %v, want %v", err, errNilParetoSolution)
+	}
+}
+
+func TestOptimizeMultiObjectiveRejectsUnsupportedSharedSettings(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*MultiObjectiveConfig)
+	}{
+		{name: "binary swarm", mutate: func(config *MultiObjectiveConfig) { config.Swarm.UseBinary = true }},
+		{name: "minimum improvement", mutate: func(config *MultiObjectiveConfig) {
+			config.Swarm.Convergence = &ConvergenceConfig{MinImprovement: 0.1}
+		}},
+		{name: "unknown policy", mutate: func(config *MultiObjectiveConfig) {
+			config.ArchivePolicy = "mystery"
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := newMultiObjectiveTestConfig(ZDT1, 3, 1, 1)
+			test.mutate(config)
+
+			_, err := OptimizeMultiObjective(context.Background(), config)
+			if err == nil {
+				t.Fatal("unsupported setting was accepted")
+			}
+		})
+	}
+}
+
+func TestOptimizeMultiObjectiveRejectsNonFiniteObjectives(t *testing.T) {
+	config := newMultiObjectiveTestConfig(func([]float64) []float64 {
+		return []float64{math.NaN(), math.Inf(1)}
+	}, 2, 1, 1)
+
+	_, err := OptimizeMultiObjective(context.Background(), config)
+	if !errors.Is(err, ErrNoFiniteObjective) {
+		t.Fatalf("error = %v, want ErrNoFiniteObjective", err)
+	}
+}
+
+func TestOptimizeMultiObjectiveReportsSeedKnowledge(t *testing.T) {
+	seeded := newMultiObjectiveTestConfig(ZDT1, 2, 1, 44)
+
+	result, err := OptimizeMultiObjective(context.Background(), seeded)
+	if err != nil {
+		t.Fatalf("seeded run: %v", err)
+	}
+
+	if !result.SeedKnown || result.Seed != 44 {
+		t.Errorf("seed metadata = (%d, %v), want (44, true)", result.Seed, result.SeedKnown)
+	}
+
+	direct := newMultiObjectiveTestConfig(ZDT1, 2, 1, 44)
+	direct.Swarm.Seed = nil
+	direct.Swarm.Rand = rand.New(rand.NewSource(44))
+
+	result, err = OptimizeMultiObjective(context.Background(), direct)
+	if err != nil {
+		t.Fatalf("direct-rand run: %v", err)
+	}
+
+	if result.SeedKnown || result.Seed != 0 {
+		t.Errorf("direct-rand metadata = (%d, %v), want (0, false)", result.Seed, result.SeedKnown)
 	}
 }

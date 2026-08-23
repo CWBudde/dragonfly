@@ -79,17 +79,17 @@ number.
 Every setter returns the runner, so they chain. All are also plain exported fields if you
 prefer a struct literal.
 
-| Setter                   | Field           | Default                     | Meaning                                                 |
-| ------------------------ | --------------- | --------------------------- | ------------------------------------------------------- |
-| `WithVariants(v...)`     | `Variants`      | `SingleObjectiveVariants()` | the variants to compare                                 |
-| `WithVariantNames(n...)` | `Variants`      | —                           | the same, by name or alias                              |
-| `WithRuns(n)`            | `Runs`          | `30`                        | runs per variant; must be positive                      |
-| `WithIterations(n)`      | `MaxIterations` | `500`                       | iterations per run; must be positive                    |
-| `WithTarget(c)`          | `TargetCost`    | `0` (disabled)              | success threshold for `SuccessRate` and `ConvergenceAt` |
-| `WithParallel(b)`        | `Parallel`      | `false`                     | run jobs concurrently                                   |
-| `WithMaxWorkers(n)`      | `MaxWorkers`    | `runtime.NumCPU()`          | bound on concurrent runs; must be non-negative          |
-| `WithSeed(s)`            | `Seed`          | `time.Now().UnixNano()`     | the base seed                                           |
-| `WithVerbose(b)`         | `Verbose`       | `false`                     | per-run progress output                                 |
+| Setter                   | Field           | Default                     | Meaning                                               |
+| ------------------------ | --------------- | --------------------------- | ----------------------------------------------------- |
+| `WithVariants(v...)`     | `Variants`      | `SingleObjectiveVariants()` | the variants to compare                               |
+| `WithVariantNames(n...)` | `Variants`      | —                           | the same, by name or alias                            |
+| `WithRuns(n)`            | `Runs`          | `30`                        | runs per variant; must be positive                    |
+| `WithIterations(n)`      | `MaxIterations` | `500`                       | iterations per run; must be positive                  |
+| `WithTarget(c)`          | `TargetCost`    | unset                       | success threshold; zero and negative values are valid |
+| `WithParallel(b)`        | `Parallel`      | `false`                     | run jobs concurrently                                 |
+| `WithMaxWorkers(n)`      | `MaxWorkers`    | `runtime.NumCPU()`          | bound on concurrent runs; must be non-negative        |
+| `WithSeed(s)`            | `Seed`          | `time.Now().UnixNano()`     | the base seed                                         |
+| `WithVerbose(b)`         | `Verbose`       | `false`                     | per-run progress output                               |
 
 Thirty runs is the default because it is the count conventional for statistical significance in
 the metaheuristics literature, not because thirty is magic.
@@ -170,12 +170,13 @@ type AlgorithmStatistics struct {
 	Mean, Median, StdDev, Best, Worst float64
 	SuccessRate                       float64 // percent of runs at or below TargetCost
 	AvgFuncEvals, AvgTime             float64
+	SuccessfulRuns, FailedRuns        int
 }
 ```
 
 `StdDev` is the population standard deviation. `SuccessRate` is zero when no target was
-configured. Rankings are by **mean cost**, with ties broken by variant index so the ranking is
-stable across runs and processes.
+configured. Failed or non-finite runs are counted but excluded from numerical statistics and
+paired tests. Rankings are by **mean cost** over successful runs; variants with none rank last.
 
 ## The statistics
 
@@ -187,17 +188,16 @@ type WilcoxonResult struct {
 	Winner                 string  // the lower-cost variant, or "Tie"
 	WStatistic             float64 // min(W+, W-)
 	PValue                 float64 // two-tailed
-	Significant            bool    // PValue < 0.05
+	AdjustedPValue         float64 // Holm correction across available pairs
+	Pairs                  int
+	Significant, Available bool
 }
 ```
 
-A two-tailed paired test on the per-run best costs. Zero differences are dropped and the ranks
-recomputed over what remains — Wilcoxon's original handling. The p-value comes from the normal
-approximation to `W`, with no continuity or tie correction.
-
-**Below roughly ten non-tied pairs the approximation is unreliable** and should be read against
-an exact table instead. It is reported anyway rather than withheld, because it is the number a
-reader can check.
+A two-tailed paired test on successful matched runs. Zero differences are dropped and ranks
+recomputed over what remains. Up to 20 non-zero pairs use exact sign enumeration; larger
+samples use a continuity- and tie-corrected normal approximation. Pairwise significance uses
+the Holm-adjusted p-value.
 
 `Winner` is `"Tie"` whenever the difference is not significant, so a non-significant result
 never reads as a win.
@@ -209,11 +209,14 @@ type FriedmanTestResult struct {
 	ChiSquare        float64
 	PValue           float64
 	DegreesOfFreedom int  // k - 1
+	Blocks           int  // complete successful paired runs
 	Significant      bool // PValue < 0.05
+	Available        bool
 }
 ```
 
-The non-parametric analogue of a repeated-measures ANOVA, over the per-run ranks:
+The tie-corrected non-parametric analogue of a repeated-measures ANOVA, over complete per-run
+ranks:
 
 ```
 chi² = 12 / (n·k·(k+1)) · Σ R_j²  −  3·n·(k+1)
@@ -249,8 +252,11 @@ statistics repeated on every row so the file is usable without a join:
 ```
 benchmark, variant, rank, run, seed, best_cost, function_evaluations, iterations,
 convergence_at, execution_seconds, error, mean, median, stddev, best, worst,
-success_rate, avg_function_evaluations, avg_execution_seconds
+success_rate, avg_function_evaluations, avg_execution_seconds, successful_runs, failed_runs
 ```
+
+Unavailable CSV costs are empty and unavailable JSON costs are `null`. Every export is written
+to a same-directory temporary file and atomically renamed only after encoding succeeds.
 
 `ExportToJSON` writes the whole `ComparisonResult` as an indented document, including every
 `RunResult` and both test results.

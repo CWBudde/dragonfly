@@ -39,4 +39,4 @@ Feature: Algorithm Variants
     Given a Sphere function with dimension 5
     And bounds from -10 to 10
     When I run DA for 50 iterations
-    Then the reported seed should be non-zero
+    Then the reported seed should be known

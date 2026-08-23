@@ -61,10 +61,20 @@ jobs:
           go vet ./...
 
       - name: Run tests
-        run: go test -timeout 20m ./...
+        run: |
+          go test -timeout 20m -coverprofile=coverage.out -covermode=atomic ./...
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/, "", $3); print $3}')"
+          awk -v total="$total" 'BEGIN { if (total + 0 < 80) exit 1 }'
+
+      - name: Compile example modules
+        run: |
+          for module in examples examples/basic examples/comparison examples/constrained examples/feature_selection examples/multiobjective examples/parallel; do
+            (cd "$module" && go build ./...)
+          done
+          (cd examples/wasm-demo && GOOS=js GOARCH=wasm go build -o /dev/null . && go build -o /dev/null ./...)
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.11.4
           args: --config ./.golangci.toml --timeout 5m

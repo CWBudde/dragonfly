@@ -180,6 +180,108 @@ func TestOptimizeSeedWriteback(t *testing.T) {
 	if result.Seed == 0 {
 		t.Error("Result.Seed = 0, want the generated seed")
 	}
+
+	if !result.SeedKnown {
+		t.Error("Result.SeedKnown = false for a library-generated seed")
+	}
+}
+
+func TestOptimizeExplicitSeedIsReportedAndReproducible(t *testing.T) {
+	seed := int64(42)
+	config := newTestConfig(Sphere, 4, -10, 10, 1)
+	config.Rand = nil
+	config.Seed = &seed
+
+	first, err := Optimize(config)
+	if err != nil {
+		t.Fatalf("first Optimize() error = %v", err)
+	}
+
+	second, err := Optimize(config)
+	if err != nil {
+		t.Fatalf("second Optimize() error = %v", err)
+	}
+
+	if !first.SeedKnown || first.Seed != seed {
+		t.Fatalf("seed metadata = (%d, %v), want (%d, true)", first.Seed, first.SeedKnown, seed)
+	}
+
+	if first.GlobalBest.Cost != second.GlobalBest.Cost {
+		t.Fatalf("explicit seed did not reproduce: %v != %v", first.GlobalBest.Cost, second.GlobalBest.Cost)
+	}
+}
+
+func TestOptimizeCallerRandHasUnknownSeed(t *testing.T) {
+	result, err := Optimize(newTestConfig(Sphere, 4, -10, 10, 1))
+	if err != nil {
+		t.Fatalf("Optimize() error = %v", err)
+	}
+
+	if result.SeedKnown || result.Seed != 0 {
+		t.Fatalf("seed metadata = (%d, %v), want (0, false)", result.Seed, result.SeedKnown)
+	}
+}
+
+func TestOptimizeRejectsAllNonFiniteObjectives(t *testing.T) {
+	config := newTestConfig(func([]float64) float64 { return math.NaN() }, 3, -1, 1, 1)
+
+	result, err := Optimize(config)
+	if !errors.Is(err, ErrNoFiniteObjective) {
+		t.Fatalf("Optimize() error = %v, want ErrNoFiniteObjective", err)
+	}
+
+	if result != nil {
+		t.Fatalf("Optimize() result = %+v alongside error", result)
+	}
+}
+
+func TestPrepareSwarmStepGatesEnemyIndependently(t *testing.T) {
+	config := NewDefaultConfig()
+	config.LowerBound = -100
+	config.UpperBound = 100
+	config.UseLevyWalk = false
+	state := &runState{
+		swarm: []Dragonfly{
+			{Position: []float64{0, 0}, Step: []float64{0, 0}},
+			{Position: []float64{1, 1}, Step: []float64{0, 0}},
+		},
+		food:  Best{Position: []float64{0, 0}},
+		enemy: Best{Position: []float64{10, 10}},
+	}
+	weights := weightSchedule{Enemy: 1, Radius: 2, MaxStep: 100}
+
+	prepareSwarmStep(state, 0, config, weights, rand.New(rand.NewSource(1)))
+
+	assertVecEqual(t, state.swarm[0].Step, []float64{0, 0})
+}
+
+func TestFidelityModesSeparatePaperAndMATLABBranches(t *testing.T) {
+	newState := func() *runState {
+		return &runState{
+			swarm: []Dragonfly{
+				{Position: []float64{0, 0}, Step: []float64{0, 0}},
+				{Position: []float64{1, 1}, Step: []float64{0, 0}},
+			},
+			food:  Best{Position: []float64{10, 10}},
+			enemy: Best{Position: []float64{10, 10}},
+		}
+	}
+	weights := weightSchedule{Separation: 1, Radius: 2, MaxStep: 100}
+
+	paper := NewDefaultConfig()
+	paper.LowerBound, paper.UpperBound = -100, 100
+	paper.UseLevyWalk = false
+	paperState := newState()
+	prepareSwarmStep(paperState, 0, paper, weights, rand.New(rand.NewSource(1)))
+	assertVecEqual(t, paperState.swarm[0].Step, []float64{1, 1})
+
+	matlab := NewDefaultConfig()
+	matlab.FidelityMode = FidelityMATLAB
+	matlab.LowerBound, matlab.UpperBound = -100, 100
+	matlab.UseLevyWalk = false
+	matlabState := newState()
+	prepareSwarmStep(matlabState, 0, matlab, weights, rand.New(rand.NewSource(1)))
+	assertVecEqual(t, matlabState.swarm[0].Step, []float64{0, 0})
 }
 
 // TestOptimizeRejectsInvalidConfig asserts that validateConfig's rejections
@@ -201,6 +303,7 @@ func TestOptimizeRejectsInvalidConfig(t *testing.T) {
 		{"enemy cutoff above one", func(c *Config) { c.EnemyCutoffFraction = 1.5 }},
 		{"levy beta out of range", func(c *Config) { c.LevyBeta = 2 }},
 		{"unknown boundary method", func(c *Config) { c.BoundaryMethod = "bounce" }},
+		{"unknown fidelity mode", func(c *Config) { c.FidelityMode = "hybrid" }},
 	}
 
 	for _, tt := range tests {

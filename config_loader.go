@@ -4,9 +4,11 @@
 package dragonfly
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,9 +62,21 @@ func LoadConfig(path string) (*Config, error) {
 
 	config := &Config{}
 
-	unmarshalErr := json.Unmarshal(data, config)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+
+	unmarshalErr := decoder.Decode(config)
 	if unmarshalErr != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", unmarshalErr)
+	}
+
+	trailingErr := decoder.Decode(&struct{}{})
+	if !errors.Is(trailingErr, io.EOF) {
+		if trailingErr == nil {
+			trailingErr = errors.New("multiple JSON values")
+		}
+
+		return nil, fmt.Errorf("failed to parse config file: trailing data: %w", trailingErr)
 	}
 
 	validationErr := validateWithoutObjective(config)

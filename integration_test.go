@@ -113,7 +113,7 @@ func (fc *featureContext) runConfig(iterations int, seed int64) *Config {
 	config.UpperBound = fc.upperBound
 	config.MaxIterations = iterations
 	config.NPop = 40
-	config.Rand = rand.New(rand.NewSource(seed))
+	config.Seed = &seed
 
 	if fc.targetCost != nil || fc.stagnationLimit > 0 {
 		config.Convergence = &ConvergenceConfig{
@@ -236,13 +236,13 @@ func (fc *featureContext) theEvaluationCountShouldBePositive() error {
 	return nil
 }
 
-func (fc *featureContext) theReportedSeedShouldBeNonZero() error {
+func (fc *featureContext) theReportedSeedShouldBeKnown() error {
 	if fc.result == nil {
 		return errNoResult
 	}
 
-	if fc.result.Seed == 0 {
-		return errors.New("the reported seed is zero")
+	if !fc.result.SeedKnown {
+		return errors.New("the result does not know the seed that drove the run")
 	}
 
 	return nil
@@ -887,7 +887,7 @@ func registerSharedSteps(sc *godog.ScenarioContext, fc *featureContext) {
 	sc.Step(`^the best position should have (\d+) components$`, fc.theBestPositionShouldHaveComponents)
 	sc.Step(`^the best position should be within bounds$`, fc.theBestPositionShouldBeWithinBounds)
 	sc.Step(`^the evaluation count should be positive$`, fc.theEvaluationCountShouldBePositive)
-	sc.Step(`^the reported seed should be non-zero$`, fc.theReportedSeedShouldBeNonZero)
+	sc.Step(`^the reported seed should be known$`, fc.theReportedSeedShouldBeKnown)
 	sc.Step(`^the termination reason should be "([^"]*)"$`, fc.theTerminationReasonShouldBe)
 	sc.Step(`^the iteration count should be (\d+)$`, fc.theIterationCountShouldBe)
 	sc.Step(`^the iteration count should be less than (\d+)$`, fc.theIterationCountShouldBeLessThan)

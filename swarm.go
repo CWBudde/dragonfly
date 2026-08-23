@@ -18,12 +18,12 @@ package dragonfly
 import "math"
 
 // withinRadius reports whether b lies inside the per-dimension radius r around
-// a, excluding the degenerate all-zero distance (a dragonfly is not its own
-// neighbor).
+// a. The reference MATLAB test requires every component distance to be
+// non-zero, in addition to being within the radius.
 //
 // The rule is the reference implementation's, component by component:
 //
-//	all(|a_k - b_k| <= radius)  and  any(a_k - b_k != 0)
+//	all(|a_k - b_k| <= radius)  and  all(a_k - b_k != 0)
 //
 // This is a box test, not a ball test. It is deliberately not Euclidean: see
 // the file comment.
@@ -37,8 +37,6 @@ func withinRadius(a, b []float64, radius float64) bool {
 		return false
 	}
 
-	allZero := true
-
 	for k := range a {
 		distance := math.Abs(a[k] - b[k])
 
@@ -48,12 +46,12 @@ func withinRadius(a, b []float64, radius float64) bool {
 			return false
 		}
 
-		if a[k] != b[k] {
-			allZero = false
+		if distance == 0 {
+			return false
 		}
 	}
 
-	return !allZero
+	return true
 }
 
 // findNeighbors returns the indices of the neighbors of swarm[index], in
@@ -273,8 +271,8 @@ func NeighborhoodRadius(config *Config, iteration, maxIterations int) float64 {
 // WithinRadius reports whether b is a neighbor of a at the given radius.
 //
 // The test is per-dimension and is a box, not a ball: every component of the
-// distance must be within the radius, and at least one must be non-zero, so a
-// dragonfly is never its own neighbor. Vectors of unequal or zero length, and
+// distance must be within the radius and non-zero, so a dragonfly is never its
+// own neighbor. Vectors of unequal or zero length, and
 // any vector with a NaN component, are never neighbors.
 //
 // It is exported for the same reason NeighborhoodRadius is, and for one more:

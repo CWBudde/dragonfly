@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"time"
 )
 
 // TransferFunction names one of the standard transfer functions that turn a
@@ -124,12 +123,14 @@ func effectiveTransferFunction(config *Config) (transferFunc, error) {
 // iteration: the swarm, the early-termination tracker, the resolved transfer
 // function, the run options and the generator every draw comes from.
 type binaryRun struct {
-	state    *runState
-	tracker  *convergenceTracker
-	rng      *rand.Rand
-	transfer transferFunc
-	options  runOptions
-	seed     int64
+	state        *runState
+	tracker      *convergenceTracker
+	rng          *rand.Rand
+	transfer     transferFunc
+	transferName TransferFunction
+	options      runOptions
+	seed         int64
+	seedKnown    bool
 }
 
 // OptimizeBinary runs the binary Dragonfly Algorithm with a background context.
@@ -145,11 +146,9 @@ func OptimizeBinary(config *Config) (*Result, error) {
 // OptimizeBinaryContext runs the binary Dragonfly Algorithm, honoring context
 // cancellation and the supplied run options.
 //
-// BDA differs from DA in the position update and nowhere else. ΔX is built by
-// the same five primitives, the same two-branch gating and the same clamp the
-// continuous variant uses -- this function calls straight into dragonfly.go's
-// step builders -- and the continuous position update is then discarded in
-// favor of
+// BDA treats every other dragonfly as a neighbor and applies the five-factor
+// step unconditionally; it has neither DA's radius branches nor its Lévy walk.
+// The continuous position update is discarded in favor of
 //
 //	x_j <- ¬x_j  if rand < T(Δx_j)  else  x_j
 //
@@ -164,14 +163,8 @@ func OptimizeBinary(config *Config) (*Result, error) {
 // from. The field is left alone rather than validated away, so that one Config
 // can be handed to both entry points.
 //
-// The Lévy walk has no binary counterpart either: it is a multiplicative
-// displacement of a real-valued position. The food-out-of-range branch is
-// therefore the local-swarming step for every dragonfly, isolated or not.
-// swarm.go's documented empty-neighborhood fallbacks (A_i is the dragonfly's
-// own step, C_i and S_i are zero) reduce it for an isolated dragonfly to a
-// decaying carry of ΔX, which the transfer function reads as a diminishing
-// random flip probability -- the exploration role the Lévy walk plays in the
-// continuous variant. Config.UseLevyWalk is ignored.
+// The Lévy walk has no binary counterpart. Config.UseLevyWalk and the radius
+// schedule are ignored.
 func OptimizeBinaryContext(ctx context.Context, config *Config, options ...RunOption) (*Result, error) {
 	run, setupErr := setupBinaryRun(ctx, config, options)
 	if setupErr != nil {
@@ -200,14 +193,19 @@ func setupBinaryRun(ctx context.Context, config *Config, options []RunOption) (*
 		return nil, configErr
 	}
 
-	// As in OptimizeContext, the seed is drawn whether or not it is used, so
-	// Result.Seed is always populated.
-	seed := time.Now().UnixNano()
-	if config.Rand == nil {
-		config.Rand = rand.New(rand.NewSource(seed))
+	// A configured seed is reproducible. A directly supplied generator has no
+	// introspectable seed and is marked unknown in the result.
+	rng, seed, seedKnown := resolveRandomSource(config)
+
+	state := initializeBinaryRun(config, resolved, rng)
+	if !hasFiniteObjective(state.swarm) {
+		return nil, ErrNoFiniteObjective
 	}
 
-	state := initializeBinaryRun(config, resolved, config.Rand)
+	contextErr = ctx.Err()
+	if contextErr != nil {
+		return nil, contextErr
+	}
 
 	// The pool is built after the starting swarm has been scored, so that
 	// initialization stays a plain sequential pass. Both paths produce the same
@@ -220,12 +218,14 @@ func setupBinaryRun(ctx context.Context, config *Config, options []RunOption) (*
 	}
 
 	return &binaryRun{
-		state:    state,
-		tracker:  newConvergenceTracker(config.Convergence, state.food, state.evaluator),
-		transfer: transfer,
-		options:  resolved,
-		rng:      config.Rand,
-		seed:     seed,
+		state:        state,
+		tracker:      newConvergenceTracker(config.Convergence, state.food, state.evaluator),
+		transfer:     transfer,
+		transferName: effectiveTransferFunctionName(config),
+		options:      resolved,
+		rng:          rng,
+		seed:         seed,
+		seedKnown:    seedKnown,
 	}, nil
 }
 
@@ -307,10 +307,10 @@ func runBinaryLoop(ctx context.Context, config *Config, run *binaryRun) (*Result
 			return nil, ctxErr
 		}
 
-		weights := computeWeights(config, t, config.MaxIterations, run.rng)
+		weights := computeWeights(config, t+1, config.MaxIterations, run.rng)
 
 		for i := range state.swarm {
-			moveBinaryDragonfly(state, i, weights, run.transfer, run.rng)
+			moveBinaryDragonfly(state, i, weights, run.transferName, run.transfer, run.rng)
 		}
 
 		evaluationErr := state.evaluateBinary(ctx)
@@ -342,6 +342,7 @@ func runBinaryLoop(ctx context.Context, config *Config, run *binaryRun) (*Result
 		FuncEvalCount:     state.funcEvals,
 		IterationCount:    completed,
 		Seed:              run.seed,
+		SeedKnown:         run.seedKnown,
 	}
 
 	logOptimizationCompleted(ctx, run.options.logger, result)
@@ -365,9 +366,14 @@ func runBinaryLoop(ctx context.Context, config *Config, run *binaryRun) (*Result
 // off.
 func (state *runState) evaluateBinary(ctx context.Context) error {
 	if state.pool == nil {
+		contextErr := ctx.Err()
+		if contextErr != nil {
+			return contextErr
+		}
+
 		state.evaluateSwarm()
 
-		return nil
+		return ctx.Err()
 	}
 
 	count, err := evaluateParallelBinary(ctx, state, state.pool)
@@ -391,7 +397,11 @@ func initializeBinaryRun(config *Config, options runOptions, rng *rand.Rand) *ru
 	swarm := make([]Dragonfly, config.NPop)
 	for i := range swarm {
 		position := randomBits(config.ProblemSize, rng)
+
 		step := unifrndVec(config.LowerBound, config.UpperBound, config.ProblemSize, rng)
+		if effectiveFidelityMode(config) == FidelityMATLAB {
+			step = randomBits(config.ProblemSize, rng)
+		}
 
 		if i < len(options.initialPositions) {
 			position = copyVec(options.initialPositions[i])
@@ -440,10 +450,15 @@ func randomBits(size int, rng *rand.Rand) []float64 {
 // moveBinaryDragonfly advances one dragonfly: the continuous step, then the
 // bit-flip position update.
 func moveBinaryDragonfly(
-	state *runState, index int, weights weightSchedule, transfer transferFunc, rng *rand.Rand,
+	state *runState,
+	index int,
+	weights weightSchedule,
+	name TransferFunction,
+	transfer transferFunc,
+	rng *rand.Rand,
 ) {
-	buildBinaryStep(state, index, weights, rng)
-	flipBits(&state.swarm[index], transfer, rng)
+	buildBinaryStep(state, index, weights)
+	updateBinaryPosition(&state.swarm[index], name, transfer, rng)
 }
 
 // buildBinaryStep computes ΔX exactly as the continuous variant does, by
@@ -453,10 +468,16 @@ func moveBinaryDragonfly(
 // for a 0/1 vector, so the position is saved beforehand and restored
 // afterwards. Only ΔX survives the call, which is precisely the part BDA
 // shares with DA.
-func buildBinaryStep(state *runState, index int, weights weightSchedule, rng *rand.Rand) {
+func buildBinaryStep(state *runState, index int, weights weightSchedule, _ ...*rand.Rand) {
 	fly := &state.swarm[index]
 
-	neighbors := findNeighbors(state.swarm, index, weights.Radius)
+	neighbors := make([]int, 0, len(state.swarm)-1)
+	for i := range state.swarm {
+		if i != index {
+			neighbors = append(neighbors, i)
+		}
+	}
+
 	separation := separationVector(state.swarm, index, neighbors)
 	alignment := alignmentVector(state.swarm, index, neighbors)
 	cohesion := cohesionVector(state.swarm, index, neighbors)
@@ -464,14 +485,56 @@ func buildBinaryStep(state *runState, index int, weights weightSchedule, rng *ra
 	enemy := enemyVector(fly.Position, state.enemy.Position)
 
 	saved := copyVec(fly.Position)
-
-	if foodInRadius(fly.Position, state.food.Position, weights.Radius) {
-		applyFullStep(fly, weights, separation, alignment, cohesion, food, enemy)
-	} else {
-		applySwarmingStep(fly, weights, separation, alignment, cohesion, rng)
-	}
+	applyFullStep(fly, weights, separation, alignment, cohesion, food, enemy)
 
 	copy(fly.Position, saved)
+}
+
+func effectiveTransferFunctionName(config *Config) TransferFunction {
+	if config.TransferFunc == "" {
+		return DefaultTransferFunction
+	}
+
+	return config.TransferFunc
+}
+
+func isSShaped(name TransferFunction) bool {
+	switch name {
+	case TransferS1, TransferS2, TransferS3, TransferS4:
+		return true
+	default:
+		return false
+	}
+}
+
+// updateBinaryPosition applies the distinct binary semantics of the transfer
+// families: V-shaped functions complement the current bit, while S-shaped
+// functions assign a sampled Bernoulli value.
+func updateBinaryPosition(
+	fly *Dragonfly, name TransferFunction, transfer transferFunc, rng *rand.Rand,
+) {
+	for j := range fly.Position {
+		if j >= len(fly.Step) {
+			return
+		}
+
+		draw := unifrnd(0, 1, rng)
+
+		probability := transfer(fly.Step[j])
+		if isSShaped(name) {
+			if draw < probability {
+				fly.Position[j] = 1
+			} else {
+				fly.Position[j] = 0
+			}
+
+			continue
+		}
+
+		if draw < probability {
+			fly.Position[j] = flipBit(fly.Position[j])
+		}
+	}
 }
 
 // flipBits is the binary position update: each component is flipped with
@@ -482,15 +545,7 @@ func buildBinaryStep(state *runState, index int, weights weightSchedule, rng *ra
 // flips. A NaN or missing step component cannot flip a bit, because every
 // comparison against NaN is false.
 func flipBits(fly *Dragonfly, transfer transferFunc, rng *rand.Rand) {
-	for j := range fly.Position {
-		if j >= len(fly.Step) {
-			return
-		}
-
-		if unifrnd(0, 1, rng) < transfer(fly.Step[j]) {
-			fly.Position[j] = flipBit(fly.Position[j])
-		}
-	}
+	updateBinaryPosition(fly, TransferV3, transfer, rng)
 }
 
 // flipBit returns the complement of a bit. Anything that is not exactly zero

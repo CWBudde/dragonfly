@@ -1,6 +1,7 @@
 package dragonfly
 
 import (
+	"errors"
 	"math/rand"
 	"strings"
 	"testing"
@@ -44,14 +45,6 @@ func TestRecommendBestOverProblemShapes(t *testing.T) {
 			wantPreset:  PresetDefault,
 		},
 		{
-			name: "discrete beats multi-objective for the preset but not the variant",
-			characteristics: ProblemCharacteristics{
-				Dimensionality: 30, Discrete: true, MultiObjective: true,
-			},
-			wantVariant: "MODA",
-			wantPreset:  PresetBinary,
-		},
-		{
 			name: "high dimensionality points at the high-dimensional preset",
 			characteristics: ProblemCharacteristics{
 				Dimensionality: 200, Modality: Multimodal, Landscape: Rugged,
@@ -90,6 +83,28 @@ func TestRecommendBestOverProblemShapes(t *testing.T) {
 		if recommendation.Confidence <= 0 || recommendation.Confidence > 1 {
 			t.Errorf("%s: confidence = %v, want a value in (0,1]", test.name, recommendation.Confidence)
 		}
+	}
+}
+
+func TestSelectorRejectsDiscreteMultiObjectiveProblem(t *testing.T) {
+	characteristics := ProblemCharacteristics{Dimensionality: 30, Discrete: true, MultiObjective: true}
+	selector := NewAlgorithmSelector()
+
+	if recommendations := selector.RecommendAlgorithms(characteristics); len(recommendations) != 0 {
+		t.Fatalf("RecommendAlgorithms returned %d unusable recommendations", len(recommendations))
+	}
+
+	recommendation := selector.RecommendBest(characteristics)
+	if recommendation.Variant != nil {
+		t.Errorf("RecommendBest returned unsupported variant %s", recommendation.Variant.Name())
+	}
+
+	if !errors.Is(recommendation.Error, ErrUnsupportedProblemClass) {
+		t.Fatalf("RecommendBest error = %v, want ErrUnsupportedProblemClass", recommendation.Error)
+	}
+
+	if recommendation.Preset != PresetDefault {
+		t.Errorf("unsupported recommendation preset = %q, want %q", recommendation.Preset, PresetDefault)
 	}
 }
 
@@ -274,6 +289,27 @@ func TestClassifyProblemIsSeedReproducible(t *testing.T) {
 	if first.Discrete || first.MultiObjective || first.ExpensiveEvaluations ||
 		first.RequiresFastConvergence {
 		t.Errorf("ClassifyProblem filled in a caller-set field: %+v", first)
+	}
+}
+
+func TestClassifyProblemCheckedRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name  string
+		fn    ObjectiveFunction
+		size  int
+		lower float64
+		upper float64
+	}{
+		{name: "nil objective", size: 2, lower: -1, upper: 1},
+		{name: "zero size", fn: Sphere, lower: -1, upper: 1},
+		{name: "reversed bounds", fn: Sphere, size: 2, lower: 1, upper: -1},
+	}
+
+	for _, test := range tests {
+		_, err := ClassifyProblemChecked(test.fn, test.size, test.lower, test.upper, nil)
+		if err == nil {
+			t.Errorf("%s: ClassifyProblemChecked returned nil error", test.name)
+		}
 	}
 }
 

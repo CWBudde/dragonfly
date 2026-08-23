@@ -13,10 +13,12 @@ Always start from a factory function. `ObjectiveFunc`, `ProblemSize`, `LowerBoun
 | Field                  | JSON                     | Type                 | Default (`NewDefaultConfig`) |
 | ---------------------- | ------------------------ | -------------------- | ---------------------------- |
 | `ObjectiveFunc`        | not serialized           | `ObjectiveFunction`  | — (required)                 |
-| `Rand`                 | not serialized           | `*rand.Rand`         | `nil` → drawn and recorded   |
+| `Rand`                 | not serialized           | `*rand.Rand`         | `nil`                        |
+| `Seed`                 | `seed`                   | `*int64`             | `nil` → drawn and recorded   |
 | `Convergence`          | `convergence`            | `*ConvergenceConfig` | `nil` (no early stopping)    |
 | `Constraints`          | `constraints`            | `*ConstraintConfig`  | `nil` (unconstrained)        |
 | `BoundaryMethod`       | `boundary_method`        | `BoundaryMethod`     | `"wrap"`                     |
+| `FidelityMode`         | `fidelity_mode`          | `FidelityMode`       | `"paper"`                    |
 | `TransferFunc`         | `transfer_function`      | `TransferFunction`   | `""` → `v3` (BDA only)       |
 | `LowerBound`           | `lower_bound`            | `float64`            | — (required)                 |
 | `UpperBound`           | `upper_bound`            | `float64`            | — (required)                 |
@@ -56,6 +58,9 @@ objective: take a position in `[0, 1]^d` and map each component to its own range
 evaluating. Equal bounds are rejected along with inverted ones, because a zero-width box makes
 every schedule that divides by `(ub-lb)` degenerate.
 
+The span itself must also be finite. Two individually finite endpoints such as
+`[-math.MaxFloat64, math.MaxFloat64]` are rejected because their difference overflows.
+
 Almost every schedule in the algorithm is written in units of `(ub-lb)`, so the box width is not
 a neutral choice: it sets the neighbourhood radius, the step clamp and, through them, the scale
 of the whole search. It also sets the scale of the reported cost — Sphere over `[-100, 100]`
@@ -72,6 +77,18 @@ config.ProblemSize = 2
 config.LowerBound = -5
 config.UpperBound = 5
 ```
+
+## Fidelity and reproducibility
+
+`FidelityPaper` is the default. `FidelityMATLAB` selects the reference implementation's
+operator choices where they differ, including its separation sign, one-neighbor fallback and
+food-distance branch. MODA additionally resolves an unset archive policy to
+`ArchivePolicyPaperSegments` or `ArchivePolicyMATLABDensity`; `ArchivePolicyMOPSOGrid` names
+the v0.1 extension explicitly.
+
+Set `Config.Seed` for a repeatable run whose result reports `SeedKnown = true`. If you inject
+an already-created `Config.Rand`, its internal seed cannot be recovered, so the generator is
+used but `SeedKnown` is false. Supplying both is rejected.
 
 ## Population and run length
 
@@ -350,26 +367,26 @@ is built in swarm index order on the calling goroutine, and
 ## Random number generation
 
 ```go
-config.Rand = rand.New(rand.NewSource(42))
+seed := int64(42)
+config.Seed = &seed
 ```
 
-`Config.Rand` is the single injection point. When it is nil, `OptimizeContext` draws a seed from
-the clock, creates a generator, **writes it back into the config**, and records the seed in
-`Result.Seed`. Capture `Result.Seed`, feed it back, and you get the same trajectory:
+When both `Seed` and `Rand` are nil, `OptimizeContext` draws a seed from the clock, creates a
+generator and reports the seed with `Result.SeedKnown = true`. Capture it and feed it back
+through `Config.Seed` to reproduce the trajectory:
 
 ```go
 first, _ := dragonfly.Optimize(newConfig())
 
 replay := newConfig()
-replay.Rand = rand.New(rand.NewSource(first.Seed))
+replay.Seed = &first.Seed
 
 second, _ := dragonfly.Optimize(replay)
 // second.GlobalBest.Cost == first.GlobalBest.Cost, exactly
 ```
 
-One caveat, inherited from Mayfly's convention: when you supplied your own `*rand.Rand`, it is
-that generator and not the recorded seed that drove the run. `Result.Seed` is then the unused
-fallback, and reproducing the run means reusing your generator with the same starting state.
+When you supply your own `*rand.Rand`, its original seed cannot be introspected, so `Seed` is
+zero and `SeedKnown` is false. Supplying both `Seed` and `Rand` is rejected.
 
 Because the config is mutated, a `Config` value is **not** reusable across runs as a template
 once it has been through `Optimize` — the second run continues the first run's stream. Build a
@@ -408,9 +425,8 @@ config.Swarm.UpperBound = 1
 
 `Swarm` carries every shared mechanic — bounds, population, iterations, weight schedules,
 boundary rule, Lévy parameters, RNG — so each means exactly what it means for a single-objective
-run. `Swarm.ObjectiveFunc` is ignored. The archive parameters (`Beta`, `Gamma`, `Delta`,
-`ArchiveSize`, `NGrid`) are documented, with their verification status, in
-[moda.md](../algorithms/moda.md#the-archive-parameters-are-unverified).
+run. `Swarm.ObjectiveFunc` is ignored. Archive policies and their policy-specific parameters
+are documented in [moda.md](../algorithms/moda.md#archive-policies).
 
 ## Factory functions
 

@@ -203,6 +203,22 @@ func TestMODAVariantRunReportsWrongEntryPoint(t *testing.T) {
 	}
 }
 
+func TestBuilderRejectsMultiObjectiveVariantImmediately(t *testing.T) {
+	builder := NewBuilder("moda")
+	if builder.GetVariant() == nil || builder.GetVariant().Name() != nameMODA {
+		t.Fatal("MODA builder lost the selected variant")
+	}
+
+	config, err := builder.Build()
+	if !errors.Is(err, ErrMultiObjectiveBuilder) {
+		t.Fatalf("NewBuilder(\"moda\").Build() error = %v, want ErrMultiObjectiveBuilder", err)
+	}
+
+	if config != nil {
+		t.Error("MODA builder returned a single-objective Config")
+	}
+}
+
 func TestMODAVariantRunMultiObjective(t *testing.T) {
 	variant := &MODAVariant{}
 

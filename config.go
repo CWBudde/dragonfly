@@ -9,6 +9,7 @@ import "runtime"
 // You must set ObjectiveFunc, ProblemSize, LowerBound, and UpperBound.
 func NewDefaultConfig() *Config {
 	return &Config{
+		FidelityMode: FidelityPaper,
 		// Wrapping is the paper's boundary rule; see BoundaryWrap.
 		BoundaryMethod: BoundaryWrap,
 		// The inertia weight decays linearly from 0.9 to 0.4 across the run.

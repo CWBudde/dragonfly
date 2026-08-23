@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -48,6 +49,7 @@ type ConvergenceExport struct {
 	Seed                     int64              `json:"seed"`
 	FuncEvalCount            int                `json:"func_eval_count"`
 	IterationCount           int                `json:"iteration_count"`
+	SeedKnown                bool               `json:"seed_known"`
 }
 
 func logOptimizationStarted(ctx context.Context, logger Logger, config *Config) {
@@ -124,20 +126,44 @@ func (result *Result) convergencePoints() ([]ConvergencePoint, error) {
 // writeExportFile creates path, hands the open file to write, and closes it,
 // reporting a close failure that would otherwise hide a short write. The
 // what argument names the document in every error it wraps.
-func writeExportFile(path, what string, write func(io.Writer) error) (returnErr error) {
-	file, err := os.Create(path)
+func writeExportFile(path, what string, write func(io.Writer) error) error {
+	directory := filepath.Dir(path)
+	prefix := "." + filepath.Base(path) + ".tmp-"
+
+	file, err := os.CreateTemp(directory, prefix)
 	if err != nil {
-		return fmt.Errorf("create %s: %w", what, err)
+		return fmt.Errorf("create temporary %s: %w", what, err)
 	}
 
-	defer func() {
-		closeErr := file.Close()
-		if returnErr == nil && closeErr != nil {
-			returnErr = fmt.Errorf("close %s: %w", what, closeErr)
-		}
-	}()
+	temporaryPath := file.Name()
 
-	return write(file)
+	defer func() { _ = os.Remove(temporaryPath) }()
+
+	writeErr := write(file)
+	if writeErr != nil {
+		_ = file.Close()
+
+		return writeErr
+	}
+
+	syncErr := file.Sync()
+	if syncErr != nil {
+		_ = file.Close()
+
+		return fmt.Errorf("sync %s: %w", what, syncErr)
+	}
+
+	closeErr := file.Close()
+	if closeErr != nil {
+		return fmt.Errorf("close %s: %w", what, closeErr)
+	}
+
+	renameErr := os.Rename(temporaryPath, path)
+	if renameErr != nil {
+		return fmt.Errorf("replace %s: %w", what, renameErr)
+	}
+
+	return nil
 }
 
 // ExportConvergenceCSV writes the convergence curve to path as iteration and
@@ -201,6 +227,7 @@ func (result *Result) ExportConvergenceJSON(path string) error {
 		Seed:                     result.Seed,
 		FuncEvalCount:            result.FuncEvalCount,
 		IterationCount:           result.IterationCount,
+		SeedKnown:                result.SeedKnown,
 	}
 
 	return writeExportFile(path, "convergence JSON", func(sink io.Writer) error {

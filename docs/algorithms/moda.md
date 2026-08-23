@@ -15,8 +15,9 @@ lineage:
 with particle swarm optimization. _IEEE Transactions on Evolutionary Computation_, 8(3),
 256–279.**
 
-Reference implementation: the author's `MODA.m`. It is **not available to this repository**,
-which is why the archive's four numeric parameters are flagged as unverified below.
+Reference implementation: the author's official `MODA.m` package, verified during the Phase 11
+audit. Its archive capacity is 100 and its density ranking is available through the explicit
+MATLAB policy below.
 
 ## Overview
 
@@ -24,12 +25,12 @@ MODA runs DA's swarm mechanics unchanged and replaces only what the swarm is att
 
 A multi-objective problem has no single best position and no single worst one, so the food
 source and the enemy cannot be "the best and worst seen". Instead the run maintains a
-**Pareto archive** — a set of mutually non-dominated solutions — partitioned into a grid of
-hypercubes over objective space, and each iteration draws:
+**Pareto archive** — a set of mutually non-dominated solutions — partitioned over objective
+space. In the paper-default policy each iteration draws:
 
 - the **food source** from a _sparsely_ populated hypercube, weighting each occupied cell
-  `1/N^β`, which pulls the swarm toward the thin parts of the front
-- the **enemy** from a _crowded_ hypercube, weighting each cell `N^γ`, which pushes the swarm
+  `1/N`, which pulls the swarm toward the thin parts of the front
+- the **enemy** from a _crowded_ hypercube, weighting each cell `N`, which pushes the swarm
   away from the parts already well covered
 
 Both are drawn **once per iteration**, not once per dragonfly, as the reference MODA does: the
@@ -49,8 +50,8 @@ central invariant on **every** mutation, not merely at the end of a run:
 - `Add` rejects a candidate that an archived solution dominates, or that duplicates an existing
   objective vector exactly. Otherwise every solution the candidate dominates is removed and the
   candidate is appended.
-- An insert past `MaxSize` evicts one member of the most crowded hypercube, chosen by a roulette
-  weighted `N^δ`, so the archive never exceeds its capacity.
+- An insert past `MaxSize` evicts from a crowded region according to the selected archive policy,
+  so the archive never exceeds its capacity.
 - `IsNonDominated()` re-checks the invariant in `O(n²·m)`. It is cheap enough that the tests
   assert it after every mutation.
 
@@ -61,38 +62,26 @@ all. `occupiedCells` returns cells in ascending key order rather than in map ord
 randomizes map iteration and an unsorted listing would make every roulette draw depend on the
 map's internal layout and break reproducibility.
 
-### The archive parameters are UNVERIFIED
+### Archive policies
 
-`DefaultArchiveBeta = 4`, `DefaultArchiveGamma = 2`, `DefaultArchiveDelta = 2`,
-`DefaultArchiveNGrid = 10`, `DefaultArchiveSize = 100`.
+- `ArchivePolicyPaperSegments` is the default and uses the paper's `1/N` food and `N` enemy
+  probabilities.
+- `ArchivePolicyMATLABDensity` reproduces `MODA.m`'s objective-span/20 density ranking.
+- `ArchivePolicyMOPSOGrid` preserves v0.1's configurable `β=4`, `γ=2`, `δ=2`, `NGrid=10`
+  extension. Those are not MODA reference constants.
 
-These are the **MOPSO defaults** from Coello Coello et al. (2004), the lineage MODA borrows its
-archive from. They have **not** been read off the author's `MODA.m`, which this repository does
-not have. Do not cite them as settled values from the DA paper. The source says so at the
-declaration, `PLAN.md` §1.7 says so, and this page says so: treat them as working defaults
-until someone checks them against the reference.
-
-What each one does, so you can judge a change to it:
-
-- **β (food)** — larger β concentrates the food draw more sharply on the emptiest cell.
-  β = 0 makes the draw uniform over occupied cells.
-- **γ (enemy)** — larger γ concentrates the enemy draw more sharply on the fullest cell.
-- **δ (eviction)** — larger δ makes overflow deletion more aggressive about the crowded cell.
-- **NGrid** — hypercubes per objective. More bins mean a finer notion of "crowded", and with a
-  small archive most cells hold one solution and the weighting stops discriminating.
-
-A negative or non-finite exponent is raised to zero rather than used, because a negative
-exponent inverts the preference the roulette exists to express.
+`DefaultArchiveSize = 100` is verified against `MODA.m`. Negative or non-finite exponents and
+unknown policies are rejected rather than silently normalized.
 
 ### What MODA does with the shared configuration
 
 - **Early stopping, by archive stagnation.** `Swarm.Convergence.StagnationIterations` and
   `MinIterations` carry over, with the archive standing in for the incumbent: an iteration
-  counts as an improvement when the archive accepted at least one candidate.
+  counts as an improvement only when a candidate survives the complete archive update.
   `MultiObjectiveResult.TerminationReason` is then `stagnation` rather than
   `maximum_iterations`. `TargetCost` is **rejected** by validation — a scalar target has no
   meaning against a Pareto front, and ignoring it silently would be worse than failing.
-  `MinImprovement` is not consulted: acceptance is a yes-or-no answer with no margin.
+  A nonzero `MinImprovement` is rejected: acceptance is a yes-or-no answer with no margin.
 - **Parallel evaluation.** `Swarm.EnableParallel` fans the objective calls out across
   `Swarm.MaxWorkers` goroutines. Only the objective calls fan out; the archive is built in
   swarm index order on the calling goroutine, so a seeded run is bit-identical with it on or
@@ -107,9 +96,9 @@ exponent inverts the preference the roulette exists to express.
 
 ### What MODA does not have
 
-- **No binary mode.** MODA is continuous.
-- **No run options.** Observers, logging and injected initial populations are not wired into
-  `OptimizeMultiObjective`.
+- **No binary mode.** MODA is continuous and rejects `Swarm.UseBinary`.
+- **No scalar incumbent observers.** Use `WithArchiveObserver`; scalar progress/population
+  observers and logging remain invalid for a Pareto result.
 
 `ArchiveSizeCurve` is the multi-objective analogue of `ConvergenceCurve`: the archive size after
 each completed iteration. A curve that stops growing early is the usual sign of a stagnated run.
@@ -204,11 +193,12 @@ MODA run actually uses. It is not on its own runnable as MODA.
 | --------------- | -------------------- | ------------------------------------------------------------------- |
 | `ObjectiveFunc` | — (required)         | `func([]float64) []float64`, one value per objective, all minimized |
 | `Swarm`         | `NewDefaultConfig()` | the shared mechanics; `Swarm.ObjectiveFunc` is ignored              |
-| `Beta`          | `4`                  | food-selection exponent — **unverified**                            |
-| `Gamma`         | `2`                  | enemy-selection exponent — **unverified**                           |
-| `Delta`         | `2`                  | overflow-eviction exponent — **unverified**                         |
-| `ArchiveSize`   | `100`                | archive capacity — **unverified**                                   |
-| `NGrid`         | `10`                 | hypercubes per objective — **unverified**                           |
+| `ArchivePolicy` | empty                | follows `Swarm.FidelityMode`; paper segments by default             |
+| `Beta`          | `4`                  | food exponent for the explicit MOPSO policy only                    |
+| `Gamma`         | `2`                  | enemy exponent for the explicit MOPSO policy only                   |
+| `Delta`         | `2`                  | eviction exponent for the explicit MOPSO policy only                |
+| `ArchiveSize`   | `100`                | verified archive capacity                                           |
+| `NGrid`         | `10`                 | grid resolution used by paper/MOPSO policies                        |
 
 You must set `ObjectiveFunc` and `Swarm`'s `ProblemSize`, `LowerBound` and `UpperBound`.
 `Beta`, `Gamma` and `Delta` must be non-negative and finite; `ArchiveSize` and `NGrid` must be
@@ -223,7 +213,8 @@ positive. The swarm block is validated by the same `validateConfig` a single-obj
 | `TerminationReason` | `maximum_iterations`, or `stagnation` for a run stopped early |
 | `FuncEvalCount`     | calls to `ObjectiveFunc`                                      |
 | `IterationCount`    | completed iterations                                          |
-| `Seed`              | the recorded seed                                             |
+| `Seed`              | the recorded seed when `SeedKnown` is true                    |
+| `SeedKnown`         | whether the seed identifies the random stream                 |
 
 ## Benefits
 
@@ -279,10 +270,9 @@ its food from the _sparsest_ occupied hypercube, so what remains of the run seek
 than convergence. The second half of a run can redistribute along the archive it already has,
 but it cannot lower `g`.
 
-No parity with the paper's 30-dimensional ZDT results is claimed. The hypercube parameters
-(`β`, `γ`, `δ`, `NGrid`) are still unverified against the author's `MODA.m` and were deliberately
-left alone while measuring this, so that the number above reports the implementation rather than
-a tuning pass. SchafferN1, a one-variable problem, is solved outright.
+No parity with the paper's 30-dimensional ZDT results is claimed. These measurements predate
+the paper-default archive policy and therefore describe the named legacy MOPSO trajectory, not
+the corrected default. SchafferN1, a one-variable problem, is solved outright.
 
 Cost, on Linux/amd64 with Go 1.26.0 on an AMD Ryzen 5 4600H:
 `BenchmarkOptimizeMultiObjectiveBaseline` — 30-dimensional ZDT1, 100 iterations, `NPop` 40 — is
@@ -335,9 +325,8 @@ maintenance, not the swarm, is what MODA pays for.
 5. **`Swarm.RadiusGrowth`**, for the same reason it matters in DA: it is the exploration and
    exploitation dial, and the multi-objective run needs exploration for longer.
 
-Because all five archive parameters are unverified against the reference, a tuning study here
-has more headroom than one on the continuous variant — but also less ground truth to compare
-against.
+`Beta`, `Gamma` and `Delta` tune only `ArchivePolicyMOPSOGrid`. They do not alter paper or MATLAB
+selection, so select that extension explicitly before performing this tuning sequence.
 
 ## Compared with the Other Variants
 

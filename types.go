@@ -77,6 +77,19 @@ const (
 	BoundaryReflect BoundaryMethod = "reflect"
 )
 
+// FidelityMode selects which published description of DA is reproduced when
+// the paper and the author's MATLAB implementation differ.
+type FidelityMode string
+
+const (
+	// FidelityPaper follows the equations and pseudocode in the 2016 paper. It
+	// is the default for an unset Config.FidelityMode.
+	FidelityPaper FidelityMode = "paper"
+	// FidelityMATLAB reproduces the control-flow and operator details of the
+	// author's reference MATLAB implementations.
+	FidelityMATLAB FidelityMode = "matlab"
+)
+
 // TerminationReason describes why an optimization run ended.
 type TerminationReason string
 
@@ -138,14 +151,20 @@ type ConvergenceConfig struct {
 // You must set ObjectiveFunc, ProblemSize, LowerBound and UpperBound; every
 // other field has a usable default from NewDefaultConfig.
 //
-// When EnableParallel is true, ObjectiveFunc may be called concurrently with
-// distinct position vectors and must be safe for concurrent use.
+// When EnableParallel is true, ObjectiveFunc and every configured constraint
+// callback may be called concurrently with distinct position vectors and must
+// be safe for concurrent use.
 type Config struct {
-	ObjectiveFunc  ObjectiveFunction  `json:"-"`
-	Rand           *rand.Rand         `json:"-"`
+	ObjectiveFunc ObjectiveFunction `json:"-"`
+	Rand          *rand.Rand        `json:"-"`
+	// Seed requests a reproducible random stream and records its value in the
+	// result. When Rand is supplied directly without Seed, the generator still
+	// drives the run but its original seed is unknowable.
+	Seed           *int64             `json:"seed,omitempty"`
 	Convergence    *ConvergenceConfig `json:"convergence,omitempty"`
 	Constraints    *ConstraintConfig  `json:"constraints,omitempty"`
 	BoundaryMethod BoundaryMethod     `json:"boundary_method"`
+	FidelityMode   FidelityMode       `json:"fidelity_mode"`
 
 	// TransferFunc names the transfer function the binary variant turns a step
 	// component into a bit-flip probability with. An empty value means
@@ -235,5 +254,6 @@ type Result struct {
 
 	FuncEvalCount  int
 	IterationCount int
-	Seed           int64 // Random seed used for reproducibility
+	Seed           int64 // Random seed used for reproducibility, when SeedKnown is true
+	SeedKnown      bool  // Whether Seed identifies the random stream that drove the run
 }
