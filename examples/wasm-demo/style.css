@@ -37,6 +37,32 @@
 
   --gap: 1.25rem;
   --radius: 10px;
+
+  --pad: clamp(0.75rem, 3vw, 2.5rem);
+  --rail: 17.5rem;
+
+  /*
+   * The measure of the whole page. Without it the shell ran the full viewport
+   * width and the square stage inherited it, so on a 1920×1080 screen the
+   * canvas alone was ~1540px tall and the telemetry sat two screens below the
+   * fold. Two bounds apply, whichever is tighter:
+   *
+   *   --shell     a plain reading measure, as the Mayfly demo's rack has;
+   *   --stage-max the stage against the viewport HEIGHT, which is the
+   *               dimension that actually runs out on a laptop.
+   *
+   * The height bound is spent on the page rather than on the canvas on
+   * purpose. Capping #stage alone would strand the control rail at the right
+   * edge with a band of dead space beside the canvas, and capping only the
+   * .instrument grid would leave that grid narrower than the masthead and lede
+   * above it. Narrowing the shell keeps every edge on the page in one column.
+   */
+  --shell: 67rem;
+  --stage-max: 64vh;
+  --measure: min(
+    var(--shell),
+    calc(var(--stage-max) + var(--gap) + var(--rail) + 2 * var(--pad))
+  );
 }
 
 * {
@@ -48,8 +74,9 @@ html {
 }
 
 body {
-  margin: 0;
-  padding: 0 clamp(0.75rem, 3vw, 2.5rem) 4rem;
+  margin: 0 auto;
+  max-width: var(--measure);
+  padding: 0 var(--pad) 4rem;
   background:
     radial-gradient(120% 70% at 50% -10%, #10201e 0%, transparent 60%),
     var(--ground);
@@ -205,12 +232,21 @@ a:hover {
  */
 .instrument {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 17.5rem;
+  grid-template-columns: minmax(0, 1fr) var(--rail);
   gap: var(--gap);
   align-items: start;
 }
 
 @media (max-width: 62rem) {
+  /*
+   * One column: the rail is below the stage, not beside it, so the height
+   * bound above would only make the page a narrow ribbon. Give the shell the
+   * viewport back and let the stage be as wide as the screen is.
+   */
+  :root {
+    --measure: none;
+  }
+
   .instrument {
     grid-template-columns: minmax(0, 1fr);
   }
