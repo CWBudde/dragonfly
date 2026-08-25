@@ -75,6 +75,21 @@ func dixonPriceOptimum(dimensions int) ([]float64, bool) {
 	return position, true
 }
 
+// himmelblauOptimum alternates 3 and 2 across coordinate pairs, the pattern the
+// n-dimensional extension is minimized on, with a trailing 0 for the unpaired
+// coordinate an odd dimension leaves over. A uniform vector is not a minimizer:
+// the all-threes vector scores 26 per pair rather than 0.
+func himmelblauOptimum(dimensions int) ([]float64, bool) {
+	position := make([]float64, dimensions)
+
+	for i := 0; i+1 < dimensions; i += 2 {
+		position[i] = 3
+		position[i+1] = 2
+	}
+
+	return position, true
+}
+
 // michalewiczOptima are the published minima for the steepness m = 10 that
 // functions.go implements. There is no closed form, and no tabulated value for
 // the dimensions in between, so those are reported as unknown rather than
@@ -174,6 +189,11 @@ var benchmarks = map[string]benchmark{
 		optimumAt: uniformOptimum(0), optimumValue: zeroMinimum(),
 		blurb: "Concentric ripples around the origin — every ring is a local minimum.",
 	},
+	"Himmelblau": {
+		fn: dragonfly.Himmelblau, name: "Himmelblau", lower: -5, upper: 5,
+		optimumAt: himmelblauOptimum, optimumValue: zeroMinimum(),
+		blurb: "Four equally good minima per coordinate pair. Tests whether a swarm commits to one or splits between them.",
+	},
 }
 
 // benchmarkNames returns the table's keys in a stable, didactic order: the
@@ -184,6 +204,7 @@ func benchmarkNames() []string {
 		"Sphere", "Rastrigin", "Rosenbrock", "Ackley", "Griewank",
 		"Schwefel", "Levy", "Zakharov", "Michalewicz", "DixonPrice",
 		"BentCigar", "Discus", "Weierstrass", "HappyCat", "ExpandedSchafferF6",
+		"Himmelblau",
 	}
 
 	seen := make(map[string]bool, len(ordered))

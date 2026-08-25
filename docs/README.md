@@ -60,7 +60,7 @@ parameters, benefits, performance, when to use, tuning guide, comparison, relate
 
 ### Reference Documentation
 
-- **[Benchmark Functions](benchmarks.md)** — 15 single-objective and 4 multi-objective test
+- **[Benchmark Functions](benchmarks.md)** — 16 single-objective and 4 multi-objective test
   functions, with bounds, optima, characteristics and the results this implementation actually
   reaches
 - **[Performance and Profiling](performance.md)** — measured timings and allocation counts,

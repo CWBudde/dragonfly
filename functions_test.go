@@ -787,6 +787,38 @@ func TestExpandedSchafferF6(t *testing.T) {
 	}
 }
 
+// TestHimmelblau tests the Himmelblau benchmark function.
+func TestHimmelblau(t *testing.T) {
+	// The three non-trivial minimizers are published rounded to six decimals,
+	// so they need a looser tolerance than the exactly representable cases.
+	const roundedEpsilon = 1e-8
+
+	tests := []struct {
+		name string
+		x    []float64
+		want float64
+		tol  float64
+	}{
+		{"first minimum", []float64{3.0, 2.0}, 0.0, epsilon},
+		{"second minimum", []float64{-2.805118, 3.131312}, 0.0, roundedEpsilon},
+		{"third minimum", []float64{-3.779310, -3.283186}, 0.0, roundedEpsilon},
+		{"fourth minimum", []float64{3.584428, -1.848126}, 0.0, roundedEpsilon},
+		{"two pairs", []float64{3.0, 2.0, 3.0, 2.0}, 0.0, epsilon},
+		{"odd tail at zero", []float64{3.0, 2.0, 0.0}, 0.0, epsilon},
+		{"odd tail scored", []float64{3.0, 2.0, 1.0}, 1.0, epsilon},
+		{"origin", []float64{0.0, 0.0}, 170.0, epsilon},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Himmelblau(tt.x)
+			if math.Abs(result-tt.want) > tt.tol {
+				t.Errorf("Himmelblau(%v) = %v, want %v", tt.x, result, tt.want)
+			}
+		})
+	}
+}
+
 // TestCECFunctionsNonNegative tests that CEC functions produce valid outputs.
 func TestCECFunctionsNonNegative(t *testing.T) {
 	cecFunctions := []struct {
@@ -803,6 +835,7 @@ func TestCECFunctionsNonNegative(t *testing.T) {
 		{"Weierstrass", Weierstrass, []float64{0.1, 0.1}},
 		{"HappyCat", HappyCat, []float64{0.0, 0.0}},
 		{"ExpandedSchafferF6", ExpandedSchafferF6, []float64{1.0, 1.0}},
+		{"Himmelblau", Himmelblau, []float64{1.0, 1.0}},
 	}
 
 	for _, tt := range cecFunctions {
@@ -1001,6 +1034,7 @@ func TestBenchmarkFunctionsEmptyInput(t *testing.T) {
 		"Weierstrass":        Weierstrass,
 		"HappyCat":           HappyCat,
 		"ExpandedSchafferF6": ExpandedSchafferF6,
+		"Himmelblau":         Himmelblau,
 	}
 
 	inputs := map[string][]float64{

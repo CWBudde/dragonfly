@@ -195,6 +195,7 @@ Ported verbatim from `Mayfly/functions.go`. Known minima and typical bounds:
 - `Weierstrass`: f(0,…,0) = 0, bounds [-0.5, 0.5] — continuous everywhere, differentiable nowhere
 - `HappyCat`: f(-1,…,-1) = 0, bounds [-2, 2] — curved thin optimal region
 - `ExpandedSchafferF6`: f(0,…,0) = 0, bounds [-100, 100] — concentric ripples
+- `Himmelblau`: f(3, 2, 3, 2, …) = 0, bounds [-5, 5] — four equal minima per coordinate pair, with an odd trailing coordinate scored as x²
 
 MODA adds ZDT1–ZDT3 and Schaffer.
 

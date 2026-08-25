@@ -697,6 +697,9 @@ var benchmarkCharacteristics = map[string]ProblemCharacteristics{
 	"ExpandedSchafferF6": {
 		Dimensionality: 30, Modality: HighlyMultimodal, Landscape: Rugged,
 	},
+	"Himmelblau": {
+		Dimensionality: 30, Modality: Multimodal, Landscape: Rugged,
+	},
 	"Schwefel":    {Dimensionality: 30, Modality: HighlyMultimodal, Landscape: Deceptive},
 	"Michalewicz": {Dimensionality: 30, Modality: HighlyMultimodal, Landscape: Deceptive},
 	"Levy":        {Dimensionality: 30, Modality: HighlyMultimodal, Landscape: Rugged},

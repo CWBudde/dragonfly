@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Himmelblau`, a sixteenth single-objective benchmark function: the classic four-minima
+  landscape, extended to n dimensions by summing over disjoint coordinate pairs, with an odd
+  trailing coordinate scored as x² so the minimum stays at zero. Registered in
+  `benchmarkCharacteristics` and in the WebAssembly demo's function table.
+
 ## [0.2.0] - 2026-08-24
 
 ### Added

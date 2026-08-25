@@ -1,6 +1,6 @@
 # Benchmark Functions Reference
 
-`functions.go` ships 15 single-objective and 4 multi-objective test problems. The suite is
+`functions.go` ships 16 single-objective and 4 multi-objective test problems. The suite is
 algorithm-agnostic — every function is pure maths over a `[]float64` — and was ported from the
 sibling [Mayfly](https://github.com/cwbudde/mayfly) library so that results are directly
 comparable between the two.
@@ -17,6 +17,8 @@ Two rules hold everywhere:
 
 **CEC-style (10)** — Schwefel, Levy, Zakharov, Michalewicz, DixonPrice, BentCigar, Discus,
 Weierstrass, HappyCat, ExpandedSchafferF6
+
+**Classic multimodal (1)** — Himmelblau
 
 **Multi-objective (4)** — ZDT1, ZDT2, ZDT3, SchafferN1
 
@@ -36,6 +38,7 @@ literature and a sampled estimate of a known answer is strictly worse than the k
 | `DixonPrice`         | [-10, 10]         | `f(x*) = 0`           | unimodal          | narrow valley |
 | `Ackley`             | [-32.768, 32.768] | `f(0,…,0) = 0`        | multimodal        | rugged        |
 | `HappyCat`           | [-2, 2]           | `f(-1,…,-1) = 0`      | multimodal        | rugged        |
+| `Himmelblau`         | [-5, 5]           | `f(3,2,3,2,…) = 0`    | multimodal        | rugged        |
 | `Rastrigin`          | [-5.12, 5.12]     | `f(0,…,0) = 0`        | highly multimodal | rugged        |
 | `Griewank`           | [-600, 600]       | `f(0,…,0) = 0`        | highly multimodal | rugged        |
 | `Weierstrass`        | [-0.5, 0.5]       | `f(0,…,0) = 0`        | highly multimodal | rugged        |
@@ -200,6 +203,23 @@ Concentric ripples around the origin that decay very slowly, so the local struct
 across the whole box. The wrap-around pair `g(xₙ, x₁)` is part of the CEC definition of the
 expanded function, not a bug. Global minimum `f(0,…,0) = 0`, typical bounds `[-100, 100]`.
 
+### Himmelblau
+
+```
+h(a, b) = (a² + b - 11)² + (a + b² - 7)²
+f(x)    = Σₖ₌₀^(⌊n/2⌋-1) h(x₂ₖ, x₂ₖ₊₁)   [ + xₙ₋₁²  when n is odd ]
+```
+
+The textbook function is two-dimensional and has four equal global minima of value 0, at
+`(3, 2)`, `(-2.805118, 3.131312)`, `(-3.779310, -3.283186)` and `(3.584428, -1.848126)`. The
+suite extends it to n dimensions by summing over disjoint coordinate pairs, which multiplies
+the minima to `4^⌊n/2⌋` — a landscape with many equally good answers rather than one, which is
+what makes it a test of whether a swarm commits to a single basin or splits between them.
+
+An odd dimension leaves one coordinate unpaired. It is scored as `x²` so the extension keeps
+its minimum at zero: that is why `Himmelblau([3, 2, 0]) = 0` while `Himmelblau([3, 2, 1]) = 1`.
+Global minimum `f(3,2,3,2,…) = 0`, typical bounds `[-5, 5]`.
+
 ## Multi-objective problems
 
 All four have signature `func([]float64) []float64` and return two objectives, both minimized.
@@ -352,7 +372,7 @@ single runs.
 
 Every single-objective benchmark now follows the same empty-input convention: `f([]) == 0`.
 `Levy(nil)` no longer panics, and `Ackley(nil)` and `HappyCat(nil)` no longer return `NaN`.
-The convention is asserted for all fifteen functions and matches the sibling Mayfly library.
+The convention is asserted for all sixteen functions and matches the sibling Mayfly library.
 
 Two things that look like defects and are not, checked and cleared: `Levy`'s
 `sin(π·wᵢ + 1)` is the standard definition, and `ExpandedSchafferF6`'s wrap-around pair

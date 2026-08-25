@@ -262,7 +262,7 @@ request for the adaptive schedule.
 **Single-objective** — `func([]float64) float64`, all minimization:
 `Sphere`, `Rastrigin`, `Rosenbrock`, `Ackley`, `Griewank`, `Schwefel`, `Levy`, `Zakharov`,
 `Michalewicz`, `DixonPrice`, `BentCigar`, `Discus`, `Weierstrass`, `HappyCat`,
-`ExpandedSchafferF6`
+`ExpandedSchafferF6`, `Himmelblau`
 
 **Multi-objective** — `func([]float64) []float64`, all objectives minimized:
 `ZDT1`, `ZDT2`, `ZDT3`, `SchafferN1`

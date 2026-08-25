@@ -21,7 +21,7 @@ style, tooling and conventions.
   operator choices where the sources disagree instead of hiding a paper/MATLAB hybrid
 - **Constraint handling** — Deb's feasibility rules, or linear/quadratic penalties
 - **Observable** — progress and population observers, `log/slog` integration, CSV/JSON export
-- **Benchmark suite** — 15 single-objective and 4 multi-objective test functions
+- **Benchmark suite** — 16 single-objective and 4 multi-objective test functions
 - **Statistical comparison** — paired-seed runs with Wilcoxon signed-rank and Friedman tests
 
 **What DA is good at, and what it is not.** DA explores well: the growing neighbourhood radius
@@ -261,9 +261,9 @@ See [docs/api/comparison-framework.md](docs/api/comparison-framework.md).
 
 ## Benchmark Functions
 
-**Single-objective (15):** Sphere, Rastrigin, Rosenbrock, Ackley, Griewank, Schwefel, Levy,
+**Single-objective (16):** Sphere, Rastrigin, Rosenbrock, Ackley, Griewank, Schwefel, Levy,
 Zakharov, Michalewicz, DixonPrice, BentCigar, Discus, Weierstrass, HappyCat,
-ExpandedSchafferF6
+ExpandedSchafferF6, Himmelblau
 
 **Multi-objective (4):** ZDT1, ZDT2, ZDT3, SchafferN1
 
@@ -395,7 +395,7 @@ Lechuga (2004) for the hypercube archive MODA borrows. Full citations and BibTeX
 | `multiobjective.go` | MODA: Pareto archive, hypercube grid, food/enemy draws   | Mirjalili (2016), §5; Coello (2004) |
 | `constraints.go`    | Deb's feasibility rules, linear/quadratic penalties      | Deb (2000)                          |
 | `comparison.go`     | Wilcoxon signed-rank, Friedman test                      | Standard non-parametric statistics  |
-| `functions.go`      | 15 single-objective + 4 multi-objective benchmarks       | CEC / standard test suites, ZDT     |
+| `functions.go`      | 16 single-objective + 4 multi-objective benchmarks       | CEC / standard test suites, ZDT     |
 
 ### Fidelity and verified reference values
 
