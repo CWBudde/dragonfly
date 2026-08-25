@@ -307,6 +307,31 @@ they are reported rather than dressed up.
   doi     = {10.1080/01621459.1937.10503522}
 }
 
+@techreport{awad2016cec2017,
+  author      = {Awad, N. H. and Ali, M. Z. and Liang, J. J. and Qu, B. Y. and
+                 Suganthan, P. N.},
+  title       = {Problem Definitions and Evaluation Criteria for the {CEC 2017}
+                 Special Session and Competition on Single Objective Bound
+                 Constrained Real-Parameter Numerical Optimization},
+  institution = {Nanyang Technological University},
+  year        = {2016},
+  month       = nov,
+  url         = {https://github.com/P-N-Suganthan/CEC2017-BoundContrained}
+}
+
+@techreport{yue2019cec2020,
+  author      = {Yue, C. T. and Price, K. V. and Suganthan, P. N. and Liang,
+                 J. J. and Ali, M. Z. and Qu, B. Y. and Awad, N. H. and
+                 Biswas, P. P.},
+  title       = {Problem Definitions and Evaluation Criteria for the {CEC 2020}
+                 Special Session and Competition on Single Objective Bound
+                 Constrained Numerical Optimization},
+  institution = {Zhengzhou University and Nanyang Technological University},
+  year        = {2019},
+  month       = nov,
+  url         = {https://github.com/P-N-Suganthan/2020-Bound-Constrained-Opt-Benchmark}
+}
+
 @misc{budde2026dragonfly,
   author = {Budde, Christian-W.},
   title  = {Dragonfly: A Go implementation of the Dragonfly Algorithm},
@@ -315,10 +340,11 @@ they are reported rather than dressed up.
 }
 ```
 
-The ZDT problems come from Zitzler, Deb & Thiele (2000); SchafferN1 from Schaffer (1985); the
-Wilcoxon signed-rank and Friedman tests in `comparison.go` from Wilcoxon (1945) and Friedman
-(1937). The remaining benchmark functions are standard CEC-suite definitions with no single
-canonical citation.
+The numbered CEC suites follow Awad et al. (2016) and Yue et al. (2019), together with the
+organizers' released evaluators and transformation data. The ZDT problems come from Zitzler,
+Deb & Thiele (2000); SchafferN1 from Schaffer (1985); the Wilcoxon signed-rank and Friedman
+tests in `comparison.go` from Wilcoxon (1945) and Friedman (1937). The standalone benchmark
+functions are standard definitions with no single canonical citation.
 
 ## Further reading
 

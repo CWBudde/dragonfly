@@ -60,9 +60,9 @@ parameters, benefits, performance, when to use, tuning guide, comparison, relate
 
 ### Reference Documentation
 
-- **[Benchmark Functions](benchmarks.md)** — 16 single-objective and 4 multi-objective test
-  functions, with bounds, optima, characteristics and the results this implementation actually
-  reaches
+- **[Benchmark Functions](benchmarks.md)** — 16 standalone single-objective functions, 4
+  multi-objective functions, and the complete usable CEC2017/CEC2020 suites, with bounds,
+  optima, characteristics and usage
 - **[Performance and Profiling](performance.md)** — measured timings and allocation counts,
   dimension and population scaling, when parallel evaluation pays for itself, profiling recipes
 - **[Research References](research.md)** — the primary and supporting papers, BibTeX entries,

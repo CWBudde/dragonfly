@@ -1,9 +1,9 @@
 # Benchmark Functions Reference
 
-`functions.go` ships 16 single-objective and 4 multi-objective test problems. The suite is
-algorithm-agnostic — every function is pure maths over a `[]float64` — and was ported from the
-sibling [Mayfly](https://github.com/cwbudde/mayfly) library so that results are directly
-comparable between the two.
+The library ships 16 standalone single-objective functions, 4 multi-objective functions, and
+the complete usable CEC2017 and CEC2020 bound-constrained suites. The implementations are
+algorithm-agnostic and stay numerically comparable with the sibling
+[Mayfly](https://github.com/cwbudde/mayfly) library.
 
 Two rules hold everywhere:
 
@@ -21,6 +21,58 @@ Weierstrass, HappyCat, ExpandedSchafferF6
 **Classic multimodal (1)** — Himmelblau
 
 **Multi-objective (4)** — ZDT1, ZDT2, ZDT3, SchafferN1
+
+**Competition suites (39)** — 29 usable CEC2017 functions and 10 CEC2020 functions
+
+## Official CEC2017 and CEC2020 suites
+
+`NewCEC2017Problem`, `CEC2017Suite`, `NewCEC2020Problem`, and `CEC2020Suite` implement the
+numbered competition suites, including shifts, rotations, permutations, hybrid partitions,
+composition weights, biases and evaluation budgets. CEC2017 F2 is deliberately absent because
+the organizers withdrew it for numerical instability.
+
+The organizer repositories do not state redistribution terms for the transformation data, so
+Dragonfly does not copy it into the module. Download and extract the official
+[CEC2017](https://github.com/P-N-Suganthan/CEC2017-BoundContrained) or
+[CEC2020](https://github.com/P-N-Suganthan/2020-Bound-Constrained-Opt-Benchmark) software, then
+pass an `fs.FS` rooted at either the archive or its `input_data` directory:
+
+```go
+data := os.DirFS("/path/to/CEC17_fast_pow")
+problem, err := dragonfly.NewCEC2017Problem(data, 10, 30)
+if err != nil {
+	log.Fatal(err)
+}
+
+config, err := problem.NewConfig(nil)
+if err != nil {
+	log.Fatal(err)
+}
+
+result, err := dragonfly.Optimize(config)
+if err != nil {
+	log.Fatal(err)
+}
+
+physicalBest, err := problem.Decode(result.GlobalBest.Position)
+```
+
+Supported competition dimensions are 10, 30, 50 and 100 for CEC2017, and 5, 10, 15 and 20
+for CEC2020. `BenchmarkCase.NewConfig` searches a normalized `[0,1]^D` box and leaves the
+base configuration's population and iteration limits unchanged. `MaxEvaluations()` reports
+the competition budget as metadata; callers remain responsible for choosing a population and
+iteration count whose paper- or MATLAB-mode evaluation accounting fits that budget.
+
+The base passed to `NewConfig` supplies continuous-DA tuning only. A binary base is rejected,
+and problem-owned objective, dimension, bounds and constraints replace their base values.
+`Bounds`, `Optimum`, `Minimum`, `Objective`, `Evaluate`, `Decode`, and `MaxEvaluations` expose
+the physical benchmark contract without mutable slice aliases.
+
+Compatibility follows the released evaluators where executable behavior disagrees with prose:
+CEC2017 Schaffer F7 reads its pre-rotation scratch, and its non-continuous Rastrigin discards
+the rounded scratch it computes. One numerical defect is deliberately repaired: CEC2020 F7 at
+dimension 5 evaluates its one-dimensional elliptic partition normally instead of dividing by
+zero and returning `NaN`.
 
 ## Quick reference table
 

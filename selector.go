@@ -395,12 +395,18 @@ const (
 	// crossed by a straight line turns exactly once.
 	unimodalTurningPoints = 1.5
 	// multimodalTurningPoints separates a handful of optima from a lattice.
-	multimodalTurningPoints = 6.0
+	// Across forty seeds at d=10, Schwefel turns 5.17 to 8.83 times per
+	// line. The former threshold of 6 made its verdict seed-dependent, so
+	// this sits below the observed range while leaving single-basin shapes
+	// (about one turn) well clear.
+	multimodalTurningPoints = 5.0
 	// smoothRoughness is the total variation along a line scan, in units of
-	// that line's own value range, below which the landscape reads as smooth.
-	// A line crossing a single basin descends once and climbs once, so its
-	// total variation is about twice its range.
-	smoothRoughness = 3.0
+	// that line's own value range, at or above which the landscape reads as
+	// rugged. A line crossing a single basin cannot exceed twice its range;
+	// forty seeded d=10 sweeps put Sphere and Rosenbrock below 2 while
+	// Schwefel starts at 2.50. The former threshold of 3 made Schwefel's
+	// landscape verdict depend on the seed.
+	smoothRoughness = 2.2
 )
 
 // ClassifyProblem samples an objective function to estimate its landscape.

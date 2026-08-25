@@ -21,7 +21,8 @@ style, tooling and conventions.
   operator choices where the sources disagree instead of hiding a paper/MATLAB hybrid
 - **Constraint handling** — Deb's feasibility rules, or linear/quadratic penalties
 - **Observable** — progress and population observers, `log/slog` integration, CSV/JSON export
-- **Benchmark suite** — 16 single-objective and 4 multi-objective test functions
+- **Benchmark suite** — 16 standalone single-objective and 4 multi-objective functions, plus
+  all 29 usable CEC2017 and all 10 CEC2020 competition problems
 - **Statistical comparison** — paired-seed runs with Wilcoxon signed-rank and Friedman tests
 
 **What DA is good at, and what it is not.** DA explores well: the growing neighbourhood radius
@@ -267,6 +268,10 @@ ExpandedSchafferF6, Himmelblau
 
 **Multi-objective (4):** ZDT1, ZDT2, ZDT3, SchafferN1
 
+**Competition suites:** all 29 usable CEC2017 functions (F2 was withdrawn) and all 10 CEC2020
+functions, with the organizers' shifts, rotations, permutations, hybrids, compositions, biases
+and evaluation budgets loaded from an external `fs.FS`.
+
 Every single-objective function has the signature `func([]float64) float64` and is a
 minimization problem; the multi-objective ones return `[]float64`, one value per objective, all
 minimized. See [docs/benchmarks.md](docs/benchmarks.md) for bounds, optima and measured
@@ -396,6 +401,7 @@ Lechuga (2004) for the hypercube archive MODA borrows. Full citations and BibTeX
 | `constraints.go`    | Deb's feasibility rules, linear/quadratic penalties      | Deb (2000)                          |
 | `comparison.go`     | Wilcoxon signed-rank, Friedman test                      | Standard non-parametric statistics  |
 | `functions.go`      | 16 single-objective + 4 multi-objective benchmarks       | CEC / standard test suites, ZDT     |
+| `cec*.go`           | CEC2017 and CEC2020 transformed competition suites       | CEC technical reports and software  |
 
 ### Fidelity and verified reference values
 

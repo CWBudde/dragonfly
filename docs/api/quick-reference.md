@@ -269,6 +269,23 @@ request for the adaptive schedule.
 
 Bounds, optima and measured results are in [../benchmarks.md](../benchmarks.md).
 
+### CEC2017 and CEC2020 competition cases
+
+```go
+data := os.DirFS("/path/to/official/input_data")
+problem, err := dragonfly.NewCEC2020Problem(data, 8, 10)
+config, err := problem.NewConfig(nil) // normalized [0,1]^10 search
+result, err := dragonfly.Optimize(config)
+physicalBest, err := problem.Decode(result.GlobalBest.Position)
+```
+
+`CEC2017Suite(data, dimension)` loads all 29 usable functions; `CEC2020Suite` loads all ten.
+Each `BenchmarkCase` exposes its physical bounds and optimum, biased minimum, function number,
+competition evaluation budget, validated evaluator and normalized configuration adapter.
+Organizer transformation files remain external to the module. See
+[../benchmarks.md](../benchmarks.md#official-cec2017-and-cec2020-suites) for supported
+dimensions, data layout and evaluator-compatibility notes.
+
 ## Binary helpers
 
 ```go

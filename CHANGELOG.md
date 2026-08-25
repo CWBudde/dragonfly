@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   landscape, extended to n dimensions by summing over disjoint coordinate pairs, with an odd
   trailing coordinate scored as x² so the minimum stays at zero. Registered in
   `benchmarkCharacteristics` and in the WebAssembly demo's function table.
+- Exact CEC2017 (29 usable functions; F2 was withdrawn) and CEC2020 (10 functions) benchmark
+  evaluators with validated `fs.FS` loaders for the organizers' transformation data, official
+  biases and budgets, normalized Dragonfly configurations, and regression coverage for base,
+  hybrid and composition functions.
 
 ## [0.2.0] - 2026-08-24
 

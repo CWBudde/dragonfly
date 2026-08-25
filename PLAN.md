@@ -713,7 +713,11 @@ bugs later: `Levy`'s `sin(π·wᵢ + 1)` is the standard definition (the `+1` is
 not a mistranscription of `π/4`), and `ExpandedSchafferF6`'s wrap-around pair
 `g(x[n-1], x[0])` is part of the CEC definition of the expanded function.
 
-- [ ] CEC2017 / CEC2020 benchmark suites
+- [x] CEC2017 / CEC2020 benchmark suites — all 29 usable CEC2017 functions and all ten CEC2020
+      functions, loaded from the organizers' external transformation data through `fs.FS`.
+      The public `BenchmarkCase` adapter searches a normalized `[0,1]^D` box and decodes the
+      result to physical coordinates; evaluator quirks and the CEC2020 F7/D5 finite repair are
+      pinned by regression tests. Completed 2026-08-25 in parity with Mayfly.
 - [x] WebAssembly browser demo and the GitHub Pages workflow — `examples/wasm-demo/`,
       four pages (Swarm Lab, Pareto, Binary, Shootout), built by
       `scripts/build-wasm-demo.sh` and published by `.github/workflows/wasm-demo-pages.yml`.
