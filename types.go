@@ -171,6 +171,7 @@ type Config struct {
 	// DefaultTransferFunction, the paper's v3. It is ignored by the continuous
 	// entry points.
 	TransferFunc TransferFunction `json:"transfer_function,omitempty"`
+	ChaosMap     ChaosMap         `json:"chaos_map,omitempty"`
 
 	LowerBound float64 `json:"lower_bound"`
 	UpperBound float64 `json:"upper_bound"`
@@ -211,6 +212,21 @@ type Config struct {
 	// LevyBeta and LevyScale parameterize Mantegna's algorithm.
 	LevyBeta  float64 `json:"levy_beta"`
 	LevyScale float64 `json:"levy_scale"`
+
+	// PSOCognitiveWeight and PSOSocialWeight are MHDA's acceleration
+	// constants. They are ignored by the other variants.
+	PSOCognitiveWeight float64 `json:"pso_cognitive_weight"`
+	PSOSocialWeight    float64 `json:"pso_social_weight"`
+
+	// ChaosSeed is CDA's deterministic initial condition. The published Gauss
+	// profile starts at 0.7. It is independent of Seed: Seed owns stochastic
+	// initialization while ChaosSeed owns the chaotic coefficient stream.
+	ChaosSeed float64 `json:"chaos_seed"`
+
+	// GaussianMutationWeight and QuantumRotationAngle parameterize QGDA's two
+	// improvement operators. The paper reports 1 and 0.005*pi respectively.
+	GaussianMutationWeight float64 `json:"gaussian_mutation_weight"`
+	QuantumRotationAngle   float64 `json:"quantum_rotation_angle"`
 
 	ProblemSize   int `json:"problem_size"`
 	NPop          int `json:"npop"`

@@ -27,10 +27,10 @@ import (
 // exceeds ReferenceMean*Tolerance is a finding: either the change degraded the
 // algorithm, or the reference was wrong to begin with and moving it needs its
 // own justification in this comment block. The reference means below were
-// chosen by rounding the observed means over seeds 1000..1014 up to a clean
-// figure, in the same spirit as the empirical tolerances in dragonfly_test.go,
-// and the tolerance is uniform at 3x because DA's run-to-run spread on these
-// benchmarks is roughly a factor of two between the best and the worst seed.
+// chosen by rounding the observed means over each baseline's documented
+// 15-seed block up to a clean figure, in the same spirit as the empirical
+// tolerances in dragonfly_test.go. The tolerance is uniform at 3x because
+// stochastic run-to-run spread can approach a factor of two.
 //
 // The absolute numbers are deliberately unflattering. DA's convergence factor
 // mc reaches zero at the halfway point, after which only the food term and
@@ -43,6 +43,7 @@ import (
 type RegressionBaseline struct {
 	Function ObjectiveFunction
 	Name     string
+	Variant  string
 
 	// ReferenceMean is the mean final cost a healthy implementation reaches on
 	// this benchmark with this configuration. It is a reference point for the
@@ -176,6 +177,49 @@ var regressionBaselines = []RegressionBaseline{
 		Tolerance:        3,
 		SuccessThreshold: 0.8,
 		Binary:           true,
+		Variant:          nameBDA,
+	},
+	{
+		Name:             "MHDA_Sphere_10D",
+		Variant:          nameMHDA,
+		Function:         Sphere,
+		Dimensions:       10,
+		LowerBound:       -100,
+		UpperBound:       100,
+		Iterations:       200,
+		Population:       30,
+		Seed:             3000,
+		ReferenceMean:    1e-8,
+		Tolerance:        3,
+		SuccessThreshold: 0.8,
+	},
+	{
+		Name:             "CDA_Rastrigin_10D",
+		Variant:          nameCDA,
+		Function:         Rastrigin,
+		Dimensions:       10,
+		LowerBound:       -5.12,
+		UpperBound:       5.12,
+		Iterations:       200,
+		Population:       30,
+		Seed:             4000,
+		ReferenceMean:    60,
+		Tolerance:        3,
+		SuccessThreshold: 0.8,
+	},
+	{
+		Name:             "QGDA_Rastrigin_10D",
+		Variant:          nameQGDA,
+		Function:         Rastrigin,
+		Dimensions:       10,
+		LowerBound:       -5.12,
+		UpperBound:       5.12,
+		Iterations:       200,
+		Population:       30,
+		Seed:             5000,
+		ReferenceMean:    1e-9,
+		Tolerance:        3,
+		SuccessThreshold: 0.8,
 	},
 }
 
@@ -221,13 +265,22 @@ func summarize(costs []float64) regressionSummary {
 // selects seed Seed+i.
 func (baseline RegressionBaseline) configFor(run int) *Config {
 	var config *Config
-	if baseline.Binary {
+
+	switch baseline.Variant {
+	case nameBDA:
 		config = NewBinaryConfig()
-	} else {
+	case nameCDA:
+		config = NewChaoticConfig()
+	case nameMHDA:
+		config = NewMemoryHybridConfig()
+	case nameQGDA:
+		config = NewQuantumConfig()
+	default:
 		config = NewDefaultConfig()
-		config.LowerBound = baseline.LowerBound
-		config.UpperBound = baseline.UpperBound
 	}
+
+	config.LowerBound = baseline.LowerBound
+	config.UpperBound = baseline.UpperBound
 
 	config.ObjectiveFunc = baseline.Function
 	config.ProblemSize = baseline.Dimensions
@@ -241,11 +294,18 @@ func (baseline RegressionBaseline) configFor(run int) *Config {
 
 // optimize dispatches to the entry point the baseline's variant belongs to.
 func (baseline RegressionBaseline) optimize(config *Config) (*Result, error) {
-	if baseline.Binary {
+	switch baseline.Variant {
+	case nameBDA:
 		return OptimizeBinary(config)
+	case nameCDA:
+		return OptimizeChaotic(config)
+	case nameMHDA:
+		return OptimizeMemoryHybrid(config)
+	case nameQGDA:
+		return OptimizeQuantum(config)
+	default:
+		return Optimize(config)
 	}
-
-	return Optimize(config)
 }
 
 // threshold is the only number the assertions compare against.
@@ -282,7 +342,7 @@ func measureBaseline(t *testing.T, baseline RegressionBaseline, runs int) []floa
 // inside the tolerated degradation.
 func TestRegressionSuite(t *testing.T) {
 	if testing.Short() {
-		t.Skip("the regression suite runs 90 optimizations; skipped under -short")
+		t.Skip("the multi-seed regression suite is skipped under -short")
 	}
 
 	for _, baseline := range regressionBaselines {

@@ -21,11 +21,11 @@ func TestRecommendBestOverProblemShapes(t *testing.T) {
 			wantPreset:      PresetDefault,
 		},
 		{
-			name: "rugged multimodal continuous still picks DA",
+			name: "rugged multimodal continuous picks QGDA",
 			characteristics: ProblemCharacteristics{
 				Dimensionality: 30, Modality: HighlyMultimodal, Landscape: Rugged,
 			},
-			wantVariant: "DA",
+			wantVariant: "QGDA",
 			wantPreset:  PresetDefault,
 		},
 		{
@@ -49,7 +49,7 @@ func TestRecommendBestOverProblemShapes(t *testing.T) {
 			characteristics: ProblemCharacteristics{
 				Dimensionality: 200, Modality: Multimodal, Landscape: Rugged,
 			},
-			wantVariant: "DA",
+			wantVariant: "QGDA",
 			wantPreset:  PresetHighDimensional,
 		},
 		{
@@ -187,7 +187,10 @@ func TestRecommendPresetTable(t *testing.T) {
 // TestRecommendPresetNamesRealFactories keeps the selector honest: every preset
 // it can return must actually resolve through NewPresetConfig.
 func TestRecommendPresetNamesRealFactories(t *testing.T) {
-	presets := []ConfigPreset{PresetDefault, PresetHighDimensional, PresetFastConvergence, PresetBinary}
+	presets := []ConfigPreset{
+		PresetDefault, PresetHighDimensional, PresetFastConvergence, PresetBinary,
+		PresetMemoryHybrid, PresetChaotic, PresetQuantum,
+	}
 	for _, preset := range presets {
 		config, err := NewPresetConfig(preset)
 		if err != nil || config == nil {
@@ -203,9 +206,9 @@ func TestRecommendForBenchmarkTable(t *testing.T) {
 		wantPreset  ConfigPreset
 	}{
 		{"Sphere", "DA", PresetDefault},
-		{"Rastrigin", "DA", PresetDefault},
+		{"Rastrigin", "QGDA", PresetDefault},
 		{"Rosenbrock", "DA", PresetDefault},
-		{"Schwefel", "DA", PresetDefault},
+		{"Schwefel", "QGDA", PresetDefault},
 		{"BentCigar", "DA", PresetDefault},
 		{"ZDT1", "MODA", PresetDefault},
 		{"ZDT3", "MODA", PresetDefault},

@@ -3,7 +3,7 @@
 # Reproducible development and CI toolchain. Keep these in sync with the
 # versions used by the GitHub workflows.
 treefmt_version := "2.5.0"
-golangci_lint_version := "2.11.4"
+golangci_lint_version := "2.13.1"
 gofumpt_version := "0.11.0"
 gci_version := "0.14.0"
 shfmt_version := "3.13.1"

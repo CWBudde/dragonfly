@@ -6,14 +6,18 @@ The contract for working in this repository, for contributors and coding agents 
 ## Project Overview
 
 Go implementation of Seyedali Mirjalili's **Dragonfly Algorithm (DA)**, covering all three
-variants of the original 2016 paper. A dependency-free metaheuristic optimization library,
-written to research fidelity against the author's reference MATLAB code (`DA.m`, `BDA.m`, `MODA.m`).
+variants of the original 2016 paper and three published improvements. A dependency-free
+metaheuristic optimization library, written to research fidelity against the primary papers
+and the author's reference MATLAB code (`DA.m`, `BDA.m`, `MODA.m`).
 
 | Variant  | Problem class                       | Entry point                                |
 | -------- | ----------------------------------- | ------------------------------------------ |
 | **DA**   | Single-objective, continuous        | `Optimize` / `OptimizeContext`             |
 | **BDA**  | Single-objective, binary / discrete | `OptimizeContext` with a transfer function |
 | **MODA** | Multi-objective, continuous         | `OptimizeMultiObjective`                   |
+| **MHDA** | Single-objective, continuous        | `OptimizeMemoryHybrid`                     |
+| **CDA**  | Single-objective, continuous        | `OptimizeChaotic`                          |
+| **QGDA** | Single-objective, continuous        | `OptimizeQuantum`                          |
 
 **Current status**: `v0.1.0` is released. The Phase 11 correctness/fidelity remediation and
 local `v0.2.0` release preparation are underway; `v0.2.0` is not released. Everything this
@@ -373,7 +377,11 @@ Dragonfly/
 │  ── variants ──
 ├── binary.go           BDA: transfer functions, bit flipping
 ├── multiobjective.go   MODA: Pareto archive, hypercube grid, food/enemy selection
-├── variants.go         AlgorithmVariant interface, DA/BDA/MODA impls, VariantBuilder
+├── improved.go         shared improved-variant evaluation and lifecycle helpers
+├── mhda.go             MHDA: personal/global memory and PSO exploitation
+├── chaotic.go          CDA: continuous DA driven by one of ten chaotic maps
+├── qgda.go             QGDA: Gaussian mutation and quantum rotation
+├── variants.go         AlgorithmVariant interface, registry implementations, VariantBuilder
 ├── selector.go         AlgorithmSelector, ClassifyProblem, RecommendForBenchmark
 ├── comparison.go       ComparisonRunner, Wilcoxon, Friedman, CSV/JSON export
 │
@@ -664,8 +672,8 @@ a config field.
 
 Source: `dragonfly.go` (main loop and entry points); `swarm.go`, `weights.go`, `levy.go` (the
 parts a reader checks against the paper); `types.go`, `config.go`, `config_loader.go`
-(configuration); `binary.go`, `multiobjective.go`, `variants.go` (the three variants and the
-framework layer); `parallel*.go` (deterministic parallelism).
+(configuration); `binary.go`, `multiobjective.go`, `mhda.go`, `chaotic.go`, `qgda.go`,
+`variants.go` (the variants and framework layer); `parallel*.go` (deterministic parallelism).
 
 Everything else:
 
@@ -682,6 +690,6 @@ Everything else:
   asserts the module path and runs race, coverage, examples/WASM and security gates; the
   separate security workflow also runs weekly
 - Tool versions are centralized in `justfile` and checked, not merely discovered on `PATH`:
-  treefmt 2.5.0, golangci-lint 2.11.4, gofumpt 0.11.0, gci 0.14.0, shfmt 3.13.1,
+  treefmt 2.5.0, golangci-lint 2.13.1, gofumpt 0.11.0, gci 0.14.0, shfmt 3.13.1,
   Taplo 0.10.0, Prettier 3.9.6, ShellCheck 0.11.0, Nancy 2.1.0 and govulncheck 1.1.4.
 - `AGENTS.md` — this file. `CLAUDE.md` is a pointer to it

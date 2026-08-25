@@ -1,5 +1,5 @@
 // Problem classification and variant recommendation: given what is known about
-// a problem, which of DA, BDA and MODA should run it, and with which preset.
+// a problem, which Dragonfly variant should run it, and with which preset.
 
 package dragonfly
 
@@ -326,6 +326,10 @@ func classReasons(characteristics ProblemCharacteristics, variant AlgorithmVaria
 			return []string{"continuous single-objective problem: DA is the paper's baseline"}
 		}
 
+		if variant.Name() == nameMHDA || variant.Name() == nameCDA || variant.Name() == nameQGDA {
+			return []string{"continuous single-objective problem: this improved DA variant matches the problem class"}
+		}
+
 		return []string{"continuous single-objective problem is outside this variant's class"}
 	}
 }
@@ -336,8 +340,17 @@ func shapeReasons(characteristics ProblemCharacteristics, variant AlgorithmVaria
 	reasons := make([]string, 0, 4)
 
 	if characteristics.Modality == HighlyMultimodal {
-		reasons = append(reasons,
-			"highly multimodal: the growing neighborhood radius keeps the swarm exploring longer")
+		switch variant.Name() {
+		case nameCDA:
+			reasons = append(reasons, "highly multimodal: chaotic coefficients preserve movement diversity")
+		case nameQGDA:
+			reasons = append(reasons, "highly multimodal: mutation and rotation add two diversity stages")
+		case nameMHDA:
+			reasons = append(reasons, "highly multimodal: personal memory retains promising regions")
+		default:
+			reasons = append(reasons,
+				"highly multimodal: the growing neighborhood radius keeps the swarm exploring longer")
+		}
 	}
 
 	if characteristics.Landscape == Deceptive && characteristics.Modality != Unimodal {

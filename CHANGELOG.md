@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Canonical improved Dragonfly variants: MHDA's personal/global memory and PSO exploitation
+  phase, continuous CDA with ten selectable chaotic maps, and QGDA's Gaussian mutation and
+  quantum-rotation phases. Each includes a dedicated configuration factory and entry point,
+  variant-registry and selector integration, deterministic parallel evaluation, examples,
+  algorithm documentation, operator tests and statistical regression coverage.
 - `Himmelblau`, a sixteenth single-objective benchmark function: the classic four-minima
   landscape, extended to n dimensions by summing over disjoint coordinate pairs, with an odd
   trailing coordinate scored as x² so the minimum stays at zero. Registered in
@@ -17,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evaluators with validated `fs.FS` loaders for the organizers' transformation data, official
   biases and budgets, normalized Dragonfly configurations, and regression coverage for base,
   hybrid and composition functions.
+
+### Changed
+
+- Updated the local and GitHub Actions lint toolchain to golangci-lint 2.13.1 and migrated the
+  renamed `exhaustruct_v5` configuration while preserving the established exclusion policy.
 
 ## [0.2.0] - 2026-08-24
 

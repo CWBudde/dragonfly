@@ -11,9 +11,10 @@
 // progresses; a dragonfly that is isolated and out of reach of the food source
 // performs a Lévy random walk instead.
 //
-// The entry points are Optimize and OptimizeContext. Configure a run with
-// NewDefaultConfig (or one of the other factories in config.go) and set
-// ObjectiveFunc, ProblemSize, LowerBound and UpperBound.
+// Optimize and OptimizeContext run standard DA. Dedicated entry points run the
+// binary, multi-objective, memory-hybrid, chaotic and quantum variants.
+// Configure a run with the matching factory in config.go and set the required
+// objective, dimension and bounds.
 //
 // Reference:
 // Mirjalili, S. (2016). Dragonfly algorithm: a new meta-heuristic optimization
@@ -375,7 +376,7 @@ func strictlyInsideBounds(position []float64, lower, upper float64) bool {
 func (state *runState) evaluateSwarm() {
 	for i := range state.swarm {
 		fly := &state.swarm[i]
-		state.evaluator.evaluateDragonfly(fly, true)
+		state.evaluator.evaluateDragonfly(fly)
 		state.funcEvals++
 
 		if state.evaluator.betterDragonflyThanBest(fly, state.food) {

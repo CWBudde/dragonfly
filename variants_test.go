@@ -11,7 +11,7 @@ import (
 // here rather than derived from variantOrder so that a reordering of the
 // registry has to be a deliberate edit in two places: reports, comparison
 // tables and recommendation listings all key off this order.
-var canonicalVariantNames = []string{"DA", "BDA", "MODA"}
+var canonicalVariantNames = []string{"DA", "BDA", "MODA", "MHDA", "CDA", "QGDA"}
 
 func TestGetAllVariantsReturnsCanonicalOrder(t *testing.T) {
 	variants := GetAllVariants()
@@ -75,6 +75,12 @@ func TestNewVariantResolvesEveryAlias(t *testing.T) {
 		{"binary", "BDA"},
 		{"moda", "MODA"},
 		{"MODA", "MODA"},
+		{"mhda", "MHDA"},
+		{"memory", "MHDA"},
+		{"cda", "CDA"},
+		{"chaotic", "CDA"},
+		{"qgda", "QGDA"},
+		{"quantum", "QGDA"},
 	}
 
 	for _, test := range tests {
@@ -112,7 +118,7 @@ func TestNewVariantRejectsUnknownName(t *testing.T) {
 func TestSingleObjectiveVariantsExcludesMODA(t *testing.T) {
 	variants := SingleObjectiveVariants()
 
-	want := []string{"DA", "BDA"}
+	want := []string{"DA", "BDA", "MHDA", "CDA", "QGDA"}
 	if len(variants) != len(want) {
 		t.Fatalf("SingleObjectiveVariants() returned %d variants, want %d", len(variants), len(want))
 	}
@@ -395,7 +401,9 @@ func TestBuilderFromVariant(t *testing.T) {
 
 func TestVariantAliasesAreSortedAndComplete(t *testing.T) {
 	aliases := VariantAliases()
-	want := []string{"bda", "binary", "da", "moda", "standard"}
+	want := []string{
+		"bda", "binary", "cda", "chaotic", "da", "memory", "mhda", "moda", "qgda", "quantum", "standard",
+	}
 
 	if len(aliases) != len(want) {
 		t.Fatalf("VariantAliases() = %v, want %v", aliases, want)

@@ -727,7 +727,12 @@ not a mistranscription of `π/4`), and `ExpandedSchafferF6`'s wrap-around pair
       and `WithinRadius` exported so a caller reconstructing a neighbourhood asks the
       library rather than reimplementing the per-dimension test.
 - [ ] `CONTRIBUTING.md`, issue and PR templates
-- [ ] Hybrid and improved DA variants: memory-based MDA, hybrid HDA, chaotic DA, quantum DA
+- [x] Hybrid and improved DA variants — implemented 2026-08-26 as the three canonical,
+      reproducible papers behind the formerly ambiguous “MDA/HDA” wording: MHDA (DA plus
+      personal/global memory and a PSO phase), continuous CDA (ten chaotic maps; Gauss/0.7
+      preset), and QGDA (Gaussian mutation plus quantum rotation). Each has a dedicated API,
+      preset, registry/selector integration, deterministic parallel evaluation, exact
+      evaluation accounting, regression coverage, example and algorithm guide.
 - [ ] A head-to-head `dragonfly` vs `mayfly` comparison harness and results table
 
 ---

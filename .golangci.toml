@@ -25,8 +25,11 @@ disable = [
   # Not applicable / too opinionated for this library.
   'depguard',
   'exhaustive',
-  # The CI-pinned golangci-lint 2.11 line uses this name.
+  # Struct completeness is deliberately enforced through targeted tests rather
+  # than literal-by-literal lint findings throughout the numeric test suite.
+  # v2.13 exposes both names while the original analyzer is deprecated.
   'exhaustruct',
+  'exhaustruct_v5',
   'gochecknoglobals',
   'gomodguard',
   'ireturn',

@@ -7,7 +7,7 @@ Everything written down about this implementation of the Dragonfly Algorithm liv
 
 - **First run?** [API Quick Reference → Minimal optimization](api/quick-reference.md#minimal-optimization)
 - **Tuning a run?** [Configuration Guide](api/configuration.md)
-- **Which variant?** [Standard DA](algorithms/standard-da.md) · [BDA](algorithms/bda.md) · [MODA](algorithms/moda.md)
+- **Which variant?** [Standard DA](algorithms/standard-da.md) · [BDA](algorithms/bda.md) · [MODA](algorithms/moda.md) · [MHDA](algorithms/mhda.md) · [CDA](algorithms/cda.md) · [QGDA](algorithms/qgda.md)
 - **Picking a test function?** [Benchmark Functions](benchmarks.md)
 - **Is it fast enough?** [Performance and Profiling](performance.md)
 - **Where does this come from?** [Research References](research.md)
@@ -57,6 +57,10 @@ parameters, benefits, performance, when to use, tuning guide, comparison, relate
 3. **[MODA](algorithms/moda.md)** — the multi-objective Dragonfly Algorithm
    - Best for: Pareto front approximation, engineering design trade-offs
    - DA's swarm mechanics over a hypercube-gridded Pareto archive
+
+4. **[MHDA](algorithms/mhda.md)** — memory-based DA with PSO exploitation
+5. **[CDA](algorithms/cda.md)** — continuous DA driven by one of ten chaotic maps
+6. **[QGDA](algorithms/qgda.md)** — quantum rotation and Gaussian mutation
 
 ### Reference Documentation
 

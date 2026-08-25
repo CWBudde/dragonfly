@@ -3,7 +3,8 @@
 A dependency-free Go implementation of the **Dragonfly Algorithm (DA)**, the swarm
 metaheuristic Seyedali Mirjalili introduced in 2016. It models the static and dynamic
 swarming behaviour of dragonflies — separation, alignment, cohesion, attraction to food and
-distraction from enemies — and covers all three variants from the original paper.
+distraction from enemies — and covers all three variants from the original paper plus three
+published improved variants.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/CWBudde/dragonfly.svg)](https://pkg.go.dev/github.com/CWBudde/dragonfly)
 
@@ -14,7 +15,8 @@ style, tooling and conventions.
 
 **Key features:**
 
-- **Three variants** — continuous `DA`, binary `BDA`, multi-objective `MODA`
+- **Six variants** — `DA`, `BDA`, `MODA`, memory-based `MHDA`, chaotic `CDA`, and
+  quantum/Gaussian `QGDA`
 - **Standard library only** — the sole direct dependency is `godog`, and it is test-only
 - **Deterministic** — a seeded run reproduces bit-for-bit, with parallel evaluation on or off
 - **Explicit fidelity** — paper behavior is the default; `FidelityMATLAB` names the reference
@@ -154,6 +156,9 @@ second, _ := dragonfly.Optimize(replay)
 | **[DA](docs/algorithms/standard-da.md)** | Single-objective, continuous        | `Optimize` / `OptimizeContext`             | baseline |
 | **[BDA](docs/algorithms/bda.md)**        | Single-objective, binary / discrete | `OptimizeBinary` / `OptimizeBinaryContext` | 1.0x     |
 | **[MODA](docs/algorithms/moda.md)**      | Multi-objective, continuous         | `OptimizeMultiObjective`                   | 1.2x     |
+| **[MHDA](docs/algorithms/mhda.md)**      | Single-objective, continuous        | `OptimizeMemoryHybrid`                     | 2.0x     |
+| **[CDA](docs/algorithms/cda.md)**        | Single-objective, continuous        | `OptimizeChaotic`                          | 1.0x     |
+| **[QGDA](docs/algorithms/qgda.md)**      | Single-objective, continuous        | `OptimizeQuantum`                          | 3.0x     |
 
 ### Using the variants
 
@@ -209,7 +214,7 @@ characteristics := dragonfly.ClassifyProblem(
 
 selector := dragonfly.NewAlgorithmSelector()
 best := selector.RecommendBest(characteristics)
-// DA, score 0.70, confidence 0.85, preset "default"
+// QGDA for this rugged multimodal landscape
 
 result, err := dragonfly.NewBuilderFromVariant(best.Variant).
 	ForProblem(dragonfly.Rastrigin, 30, -5.12, 5.12).
@@ -292,6 +297,9 @@ results.
 - **[Standard DA](docs/algorithms/standard-da.md)** — the continuous algorithm
 - **[BDA](docs/algorithms/bda.md)** — the binary variant and its transfer functions
 - **[MODA](docs/algorithms/moda.md)** — the multi-objective variant and its hypercube archive
+- **[MHDA](docs/algorithms/mhda.md)** — personal memory plus PSO exploitation
+- **[CDA](docs/algorithms/cda.md)** — one of ten chaotic maps drives all DA coefficients
+- **[QGDA](docs/algorithms/qgda.md)** — Gaussian mutation and quantum rotation
 
 ### Reference
 
@@ -310,6 +318,9 @@ repository root, so they build against the working tree rather than a published 
 (cd examples/constrained && go run .)       # inequality and equality constraints
 (cd examples/feature_selection && go run .) # BDA on a wrapper-style feature-selection problem
 (cd examples/multiobjective && go run .)    # MODA on ZDT1, exporting the front
+(cd examples/mhda && go run .)              # MHDA with personal/global memory and a PSO phase
+(cd examples/cda && go run .)               # continuous chaotic DA with Gauss-map weights
+(cd examples/qgda && go run .)              # QGDA with Gaussian and quantum operators
 (cd examples/parallel && go run .)          # deterministic parallel evaluation
 (cd examples/comparison && go run .)        # the statistical comparison framework
 ```

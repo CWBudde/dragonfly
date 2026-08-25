@@ -115,7 +115,7 @@ analysis, race and full coverage tests, examples/WASM and security under Go 1.26
 matrix, examples/WASM, security and benchmarks. `.github/workflows/security.yml` reruns the
 pinned Nancy 2.1.0 and govulncheck 1.1.4 scans weekly and on manual dispatch under Go 1.26.
 
-The rest of the pinned toolchain is treefmt 2.5.0, golangci-lint 2.11.4, gofumpt 0.11.0,
+The rest of the pinned toolchain is treefmt 2.5.0, golangci-lint 2.13.1, gofumpt 0.11.0,
 gci 0.14.0, shfmt 3.13.1, Taplo 0.10.0, Prettier 3.9.6 and ShellCheck 0.11.0. `just
 check-tools` verifies the installed versions instead of accepting any same-named binary.
 

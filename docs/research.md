@@ -216,6 +216,37 @@ they are reported rather than dressed up.
   doi     = {10.1007/s00521-015-1920-1}
 }
 
+@article{ranjini2017memory,
+  author  = {Sree Ranjini, K. S. and Murugan, S.},
+  title   = {Memory based Hybrid Dragonfly Algorithm for numerical optimization problems},
+  journal = {Expert Systems with Applications},
+  volume  = {83},
+  pages   = {63--78},
+  year    = {2017},
+  doi     = {10.1016/j.eswa.2017.04.033}
+}
+
+@article{sayed2019chaotic,
+  author  = {Sayed, Gehad Ismail and Tharwat, Aboul Ella and Hassanien, Aboul Ella},
+  title   = {Chaotic dragonfly algorithm: an improved metaheuristic algorithm for feature selection},
+  journal = {Applied Intelligence},
+  volume  = {49},
+  pages   = {188--205},
+  year    = {2019},
+  doi     = {10.1007/s10489-018-1261-8}
+}
+
+@article{yu2020quantum,
+  author  = {Yu, Caiyang and Cai, Zhennao and Ye, Xiaojia and Wang, Mingjing and Zhao, Xuehua and
+             Liang, Guoxi and Chen, Huiling and Li, Chengye},
+  title   = {Quantum-like mutation-induced dragonfly-inspired optimization approach},
+  journal = {Mathematics and Computers in Simulation},
+  volume  = {178},
+  pages   = {259--289},
+  year    = {2020},
+  doi     = {10.1016/j.matcom.2020.06.012}
+}
+
 @article{reynolds1987flocks,
   author  = {Reynolds, Craig W.},
   title   = {Flocks, herds and schools: A distributed behavioral model},
@@ -358,13 +389,13 @@ functions are standard definitions with no single canonical citation.
   [sibling library](https://github.com/cwbudde/mayfly), which shares this one's API and
   benchmark suite, so the two are directly comparable
 
-**Deferred here**, recorded in [PLAN.md](../PLAN.md): the improved and hybrid DA variants in the
-literature — memory-based MDA, hybrid HDA, chaotic DA, quantum DA — and a head-to-head
-`dragonfly` versus `mayfly` comparison harness.
+**Deferred here**, recorded in [PLAN.md](../PLAN.md): a head-to-head `dragonfly` versus
+`mayfly` comparison harness and results table.
 
 ## Related documentation
 
-- [Standard DA](algorithms/standard-da.md), [BDA](algorithms/bda.md), [MODA](algorithms/moda.md)
+- [Standard DA](algorithms/standard-da.md), [BDA](algorithms/bda.md), [MODA](algorithms/moda.md),
+  [MHDA](algorithms/mhda.md), [CDA](algorithms/cda.md), and [QGDA](algorithms/qgda.md)
   — each variant's page opens with its own research reference
 - [Benchmark Functions](benchmarks.md) — the test problems and what this implementation reaches
 - [../README.md](../README.md#research--citations) — the Algorithm Implementation Map

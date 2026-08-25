@@ -93,6 +93,32 @@ func benchmarkBDA(b *testing.B, problem BenchmarkProblem) {
 	}
 }
 
+func benchmarkImproved(
+	b *testing.B,
+	problem BenchmarkProblem,
+	newConfig func() *Config,
+	run func(*Config, ...RunOption) (*Result, error),
+) {
+	b.Helper()
+	b.ReportAllocs()
+
+	for range b.N {
+		config := newConfig()
+		config.ObjectiveFunc = problem.Func
+		config.ProblemSize = benchDimensions
+		config.LowerBound = problem.LowerBound
+		config.UpperBound = problem.UpperBound
+		config.MaxIterations = benchIterations
+		config.NPop = benchPopulation
+		config.Rand = rand.New(rand.NewSource(42))
+
+		_, err := run(config)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // benchmarkMODA is the body every BenchmarkOptimize<Problem>_MODA shares.
 func benchmarkMODA(b *testing.B, objective MultiObjectiveFunction) {
 	b.Helper()
@@ -145,6 +171,21 @@ func BenchmarkOptimizeRastrigin_BDA(b *testing.B)  { benchmarkBDA(b, problemName
 func BenchmarkOptimizeRosenbrock_BDA(b *testing.B) { benchmarkBDA(b, problemNamed("Rosenbrock")) }
 func BenchmarkOptimizeAckley_BDA(b *testing.B)     { benchmarkBDA(b, problemNamed("Ackley")) }
 func BenchmarkOptimizeGriewank_BDA(b *testing.B)   { benchmarkBDA(b, problemNamed("Griewank")) }
+
+// --- Improved variants ------------------------------------------------------
+
+func BenchmarkOptimizeSphere_MHDA(b *testing.B) {
+	benchmarkImproved(b, problemNamed("Sphere"), NewMemoryHybridConfig, OptimizeMemoryHybrid)
+}
+
+func BenchmarkOptimizeRastrigin_CDA(b *testing.B) {
+	benchmarkImproved(b, BenchmarkProblem{Name: "Rastrigin", Func: Rastrigin, LowerBound: -5.12, UpperBound: 5.12},
+		NewChaoticConfig, OptimizeChaotic)
+}
+
+func BenchmarkOptimizeRastrigin_QGDA(b *testing.B) {
+	benchmarkImproved(b, problemNamed("Rastrigin"), NewQuantumConfig, OptimizeQuantum)
+}
 
 // --- MODA, one benchmark per multi-objective problem -------------------------
 

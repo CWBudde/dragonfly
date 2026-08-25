@@ -2,7 +2,10 @@
 
 package dragonfly
 
-import "runtime"
+import (
+	"math"
+	"runtime"
+)
 
 // NewDefaultConfig creates a default configuration for the standard Dragonfly
 // Algorithm, with every weight left on its adaptive schedule.
@@ -31,13 +34,47 @@ func NewDefaultConfig() *Config {
 		// The enemy term is switched off for the last quarter of the run.
 		EnemyCutoffFraction: 0.75,
 		// Mantegna's algorithm with the paper's β and scale.
-		LevyBeta:      1.5,
-		LevyScale:     0.01,
-		NPop:          40,
-		MaxIterations: 1000,
-		MaxWorkers:    defaultMaxWorkers(),
-		UseLevyWalk:   true,
+		LevyBeta:  1.5,
+		LevyScale: 0.01,
+		// Defaults used only by the corresponding improved variants.
+		PSOCognitiveWeight:     2,
+		PSOSocialWeight:        2,
+		ChaosSeed:              0.7,
+		GaussianMutationWeight: 1,
+		QuantumRotationAngle:   0.005 * math.Pi,
+		NPop:                   40,
+		MaxIterations:          1000,
+		MaxWorkers:             defaultMaxWorkers(),
+		UseLevyWalk:            true,
 	}
+}
+
+// NewMemoryHybridConfig creates the published memory-based hybrid Dragonfly
+// Algorithm (MHDA) profile. MHDA adds per-dragonfly personal bests and follows
+// each DA movement with a PSO exploitation movement initialized from that
+// memory. You must set ObjectiveFunc, ProblemSize, LowerBound and UpperBound.
+func NewMemoryHybridConfig() *Config {
+	return NewDefaultConfig()
+}
+
+// NewChaoticConfig creates the published Chaotic Dragonfly Algorithm (CDA)
+// profile. CDA replaces all five movement weights and inertia with one value
+// from a deterministic chaotic sequence per iteration. The paper's
+// best-performing Gauss map and initial value 0.7 are the defaults. You must
+// set ObjectiveFunc, ProblemSize, LowerBound and UpperBound.
+func NewChaoticConfig() *Config {
+	config := NewDefaultConfig()
+	config.ChaosMap = ChaosGauss
+	config.ChaosSeed = 0.7
+
+	return config
+}
+
+// NewQuantumConfig creates the published quantum-behaved and Gaussian
+// mutational Dragonfly Algorithm (QGDA) profile. You must set ObjectiveFunc,
+// ProblemSize, LowerBound and UpperBound.
+func NewQuantumConfig() *Config {
+	return NewDefaultConfig()
 }
 
 func defaultMaxWorkers() int {

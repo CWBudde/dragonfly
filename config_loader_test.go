@@ -34,6 +34,12 @@ func TestSaveConfigAndLoadConfigRoundTrip(t *testing.T) {
 	original.EnemyCutoffFraction = 0.6
 	original.LevyBeta = 1.25
 	original.LevyScale = 0.02
+	original.PSOCognitiveWeight = 1.7
+	original.PSOSocialWeight = 1.9
+	original.ChaosMap = ChaosTent
+	original.ChaosSeed = 0.61
+	original.GaussianMutationWeight = 0.8
+	original.QuantumRotationAngle = 0.02
 	original.UseLevyWalk = false
 	original.EnableParallel = true
 	original.MaxWorkers = 3
@@ -87,6 +93,11 @@ func assertScalarFieldsRoundTripped(t *testing.T, original, loaded *Config) {
 		{"enemy_cutoff_fraction", original.EnemyCutoffFraction, loaded.EnemyCutoffFraction},
 		{"levy_beta", original.LevyBeta, loaded.LevyBeta},
 		{"levy_scale", original.LevyScale, loaded.LevyScale},
+		{"pso_cognitive_weight", original.PSOCognitiveWeight, loaded.PSOCognitiveWeight},
+		{"pso_social_weight", original.PSOSocialWeight, loaded.PSOSocialWeight},
+		{"chaos_seed", original.ChaosSeed, loaded.ChaosSeed},
+		{"gaussian_mutation_weight", original.GaussianMutationWeight, loaded.GaussianMutationWeight},
+		{"quantum_rotation_angle", original.QuantumRotationAngle, loaded.QuantumRotationAngle},
 	}
 	for _, item := range floats {
 		if item.got != item.want {
@@ -111,6 +122,10 @@ func assertScalarFieldsRoundTripped(t *testing.T, original, loaded *Config) {
 
 	if loaded.BoundaryMethod != original.BoundaryMethod {
 		t.Errorf("boundary_method = %q, want %q", loaded.BoundaryMethod, original.BoundaryMethod)
+	}
+
+	if loaded.ChaosMap != original.ChaosMap {
+		t.Errorf("chaos_map = %q, want %q", loaded.ChaosMap, original.ChaosMap)
 	}
 
 	if loaded.UseLevyWalk != original.UseLevyWalk {
@@ -295,7 +310,10 @@ func TestLoadConfigRejectsInvalidContents(t *testing.T) {
 }
 
 func TestNewPresetConfigKnownPresets(t *testing.T) {
-	presets := []ConfigPreset{PresetDefault, PresetHighDimensional, PresetFastConvergence}
+	presets := []ConfigPreset{
+		PresetDefault, PresetHighDimensional, PresetFastConvergence,
+		PresetMemoryHybrid, PresetChaotic, PresetQuantum,
+	}
 
 	for _, preset := range presets {
 		config, err := NewPresetConfig(preset)

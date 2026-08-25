@@ -334,8 +334,8 @@ func (evaluator *constraintEvaluator) evaluate(position []float64, sanitize bool
 }
 
 // evaluateDragonfly scores a dragonfly's position in place.
-func (evaluator *constraintEvaluator) evaluateDragonfly(dragonfly *Dragonfly, sanitize bool) {
-	evaluation := evaluator.evaluate(dragonfly.Position, sanitize)
+func (evaluator *constraintEvaluator) evaluateDragonfly(dragonfly *Dragonfly) {
+	evaluation := evaluator.evaluate(dragonfly.Position, true)
 	dragonfly.Cost = evaluation.Cost
 	dragonfly.ConstraintViolation = evaluation.ConstraintViolation
 }

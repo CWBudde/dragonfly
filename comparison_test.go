@@ -709,8 +709,8 @@ func TestWorkerCount(t *testing.T) {
 func TestNewComparisonRunnerDefaults(t *testing.T) {
 	runner := NewComparisonRunner()
 
-	if len(runner.Variants) != 2 {
-		t.Errorf("default variants = %d, want the two single-objective ones", len(runner.Variants))
+	if len(runner.Variants) != 5 {
+		t.Errorf("default variants = %d, want all five single-objective variants", len(runner.Variants))
 	}
 
 	for _, variant := range runner.Variants {

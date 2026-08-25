@@ -32,6 +32,12 @@ const (
 	// PresetBinary is NewBinaryConfig: BDA on the unit interval with the
 	// paper's default v3 transfer function.
 	PresetBinary ConfigPreset = "binary"
+	// PresetMemoryHybrid is NewMemoryHybridConfig: continuous MHDA.
+	PresetMemoryHybrid ConfigPreset = "memory-hybrid"
+	// PresetChaotic is NewChaoticConfig: continuous CDA with the Gauss map.
+	PresetChaotic ConfigPreset = "chaotic"
+	// PresetQuantum is NewQuantumConfig: continuous QGDA.
+	PresetQuantum ConfigPreset = "quantum"
 )
 
 // LoadConfig reads a Config from a JSON file written by SaveConfig.
@@ -166,6 +172,12 @@ func NewPresetConfig(preset ConfigPreset) (*Config, error) {
 		return NewFastConvergenceConfig(), nil
 	case PresetBinary:
 		return NewBinaryConfig(), nil
+	case PresetMemoryHybrid:
+		return NewMemoryHybridConfig(), nil
+	case PresetChaotic:
+		return NewChaoticConfig(), nil
+	case PresetQuantum:
+		return NewQuantumConfig(), nil
 	default:
 		return nil, fmt.Errorf("unknown preset %q (known presets: %s)",
 			string(preset), strings.Join(PresetNames(), ", "))
@@ -179,6 +191,9 @@ func ListPresets() map[ConfigPreset]string {
 		PresetHighDimensional: "Larger swarm, longer run and slower radius growth for many dimensions",
 		PresetFastConvergence: "Short run on a cheap objective: converges early, explores less",
 		PresetBinary:          "BDA: binary positions on [0,1] with the v3 transfer function",
+		PresetMemoryHybrid:    "MHDA: continuous DA with personal memory and a PSO exploitation stage",
+		PresetChaotic:         "CDA: continuous DA with the Gauss chaotic coefficient stream",
+		PresetQuantum:         "QGDA: continuous DA with Gaussian mutation and quantum rotation",
 	}
 }
 

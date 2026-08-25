@@ -33,13 +33,19 @@ comes from the factory.
 
 ## Entry points
 
-| Function                                                               | Runs | Returns          |
-| ---------------------------------------------------------------------- | ---- | ---------------- |
-| `Optimize(config) (*Result, error)`                                    | DA   | one incumbent    |
-| `OptimizeContext(ctx, config, options...) (*Result, error)`            | DA   | one incumbent    |
-| `OptimizeBinary(config) (*Result, error)`                              | BDA  | one bit string   |
-| `OptimizeBinaryContext(ctx, config, options...) (*Result, error)`      | BDA  | one bit string   |
-| `OptimizeMultiObjective(ctx, moConfig) (*MultiObjectiveResult, error)` | MODA | a Pareto archive |
+| Function                                                                | Runs | Returns          |
+| ----------------------------------------------------------------------- | ---- | ---------------- |
+| `Optimize(config) (*Result, error)`                                     | DA   | one incumbent    |
+| `OptimizeContext(ctx, config, options...) (*Result, error)`             | DA   | one incumbent    |
+| `OptimizeBinary(config) (*Result, error)`                               | BDA  | one bit string   |
+| `OptimizeBinaryContext(ctx, config, options...) (*Result, error)`       | BDA  | one bit string   |
+| `OptimizeMultiObjective(ctx, moConfig) (*MultiObjectiveResult, error)`  | MODA | a Pareto archive |
+| `OptimizeMemoryHybrid(config) (*Result, error)`                         | MHDA | one incumbent    |
+| `OptimizeMemoryHybridContext(ctx, config, options...) (*Result, error)` | MHDA | one incumbent    |
+| `OptimizeChaotic(config) (*Result, error)`                              | CDA  | one incumbent    |
+| `OptimizeChaoticContext(ctx, config, options...) (*Result, error)`      | CDA  | one incumbent    |
+| `OptimizeQuantum(config) (*Result, error)`                              | QGDA | one incumbent    |
+| `OptimizeQuantumContext(ctx, config, options...) (*Result, error)`      | QGDA | one incumbent    |
 
 `Optimize` is `OptimizeContext` with `context.Background()`. A cancelled run returns a nil
 result and `ctx.Err()`: partial results are deliberately not reported, so a caller cannot
@@ -57,15 +63,18 @@ variant layer, which rejects the mismatch.
 | `NewFastConvergenceConfig()` | `NPop` 30, 300 iterations, `RadiusGrowth` 4.0, `MaxStepRatio` 0.2 |
 | `NewBinaryConfig()`          | bounds `[0,1]`, `v3` transfer, `MaxStepRatio` 6.0, `UseBinary`    |
 | `NewMultiObjectiveConfig()`  | a `MultiObjectiveConfig` wrapping `NewDefaultConfig()`            |
+| `NewMemoryHybridConfig()`    | standard DA plus MHDA's personal/global memory and PSO phase      |
+| `NewChaoticConfig()`         | continuous DA with Gauss-map coefficients and chaos seed 0.7      |
+| `NewQuantumConfig()`         | standard DA plus QGDA's Gaussian and quantum phases               |
 | `NewPresetConfig(preset)`    | any of the above by name                                          |
 
 Preset names: `PresetDefault`, `PresetHighDimensional`, `PresetFastConvergence`,
-`PresetBinary`. `ListPresets()` returns them with one-line descriptions, `PresetNames()` in
+`PresetBinary`, `PresetMemoryHybrid`, `PresetChaotic`, `PresetQuantum`. `ListPresets()` returns them with one-line descriptions, `PresetNames()` in
 alphabetical order, `PrintPresets()` writes the table to stdout.
 
 ## Run options
 
-Passed variadically to `OptimizeContext` and `OptimizeBinaryContext`. Observers receive deep
+Passed variadically to the context-aware single-objective entry points. Observers receive deep
 copies and run synchronously on the caller's goroutine.
 
 ```go
@@ -155,10 +164,10 @@ The builder carries only the single-objective `Config`; use
 ## Variant registry
 
 ```go
-variant, err := dragonfly.NewVariant("bda")   // "da"/"standard", "bda"/"binary", "moda"
-all := dragonfly.GetAllVariants()             // canonical order: DA, BDA, MODA
-single := dragonfly.SingleObjectiveVariants() // DA, BDA
-names := dragonfly.ListVariants()             // ["DA" "BDA" "MODA"]
+variant, err := dragonfly.NewVariant("bda")   // canonical names and documented aliases
+all := dragonfly.GetAllVariants()             // DA, BDA, MODA, MHDA, CDA, QGDA
+single := dragonfly.SingleObjectiveVariants() // DA, BDA, MHDA, CDA, QGDA
+names := dragonfly.ListVariants()             // ["DA" "BDA" "MODA" "MHDA" "CDA" "QGDA"]
 aliases := dragonfly.VariantAliases()          // alphabetical, including aliases
 ```
 
@@ -167,6 +176,7 @@ aliases := dragonfly.VariantAliases()          // alphabetical, including aliase
 
 - `ErrMultiObjectiveVariant` — `MODAVariant.Run` cannot honour the single-objective contract
 - `ErrBinaryConfigOnContinuousVariant` — `DAVariant.Run` refuses a config with `UseBinary` set
+- `ErrImprovedVariantMATLAB` — improved variants reject the separate MATLAB lifecycle
 
 ## Variant selection
 

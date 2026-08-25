@@ -539,8 +539,8 @@ func TestConstraintEvaluatorDragonflyHelpers(t *testing.T) {
 	feasible := &Dragonfly{Position: []float64{3}}
 	infeasible := &Dragonfly{Position: []float64{-2}}
 
-	evaluator.evaluateDragonfly(feasible, true)
-	evaluator.evaluateDragonfly(infeasible, true)
+	evaluator.evaluateDragonfly(feasible)
+	evaluator.evaluateDragonfly(infeasible)
 
 	if feasible.Cost != 3 || feasible.ConstraintViolation != 0 {
 		t.Errorf("feasible dragonfly = %+v, want cost 3 with zero violation", feasible)

@@ -22,6 +22,12 @@ Feature: Variant Dispatch
       | binary   | BDA  |
       | moda     | MODA |
       | MoDa     | MODA |
+      | mhda     | MHDA |
+      | memory   | MHDA |
+      | cda      | CDA  |
+      | chaotic  | CDA  |
+      | qgda     | QGDA |
+      | quantum  | QGDA |
 
   Scenario: NewVariant refuses an unknown name
     When I create the variant named "dragonfly9000"
@@ -29,7 +35,7 @@ Feature: Variant Dispatch
 
   Scenario: GetAllVariants keeps a stable canonical order
     When I list all variants 3 times
-    Then every listing should be "DA, BDA, MODA"
+    Then every listing should be "DA, BDA, MODA, MHDA, CDA, QGDA"
 
   Scenario: The DA variant runs a continuous problem through the registry
     Given a Sphere function with dimension 5
@@ -89,7 +95,7 @@ Feature: Variant Dispatch
 
     Examples:
       | shape           | name |
-      | continuous      | DA   |
+      | continuous      | QGDA |
       | discrete        | BDA  |
       | multi-objective | MODA |
 
@@ -108,7 +114,7 @@ Feature: Variant Dispatch
     Examples:
       | benchmark | name |
       | Sphere    | DA   |
-      | Rastrigin | DA   |
+      | Rastrigin | QGDA |
       | ZDT1      | MODA |
 
   Scenario: An unknown benchmark says so in the reason

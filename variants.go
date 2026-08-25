@@ -1,4 +1,4 @@
-// The framework layer: the three algorithm variants behind one interface, a
+// The framework layer: the algorithm variants behind one interface, a
 // registry that resolves them by name, and a fluent builder.
 
 package dragonfly
@@ -16,6 +16,11 @@ const (
 	nameDA   = "DA"
 	nameBDA  = "BDA"
 	nameMODA = "MODA"
+	nameMHDA = "MHDA"
+	nameCDA  = "CDA"
+	nameQGDA = "QGDA"
+
+	recommendedContinuous = "Continuous single-objective problems"
 )
 
 // ErrMultiObjectiveVariant is returned by AlgorithmVariant.Run for a variant
@@ -44,7 +49,7 @@ var ErrBinaryConfigOnContinuousVariant = errors.New(
 	"config has UseBinary set: run it through the BDA variant, not DA")
 
 // AlgorithmVariant represents one variant of the Dragonfly Algorithm, so that
-// the selector, the comparison runner and the builder can work with all three
+// the selector, the comparison runner and the builder can work with all of them
 // through one type.
 //
 // # Why Run returns *Result even though MODA cannot produce one
@@ -62,8 +67,8 @@ var ErrBinaryConfigOnContinuousVariant = errors.New(
 // cannot honestly fill in. The multi-objective path is a separate method on the
 // concrete type, mirroring OptimizeMultiObjective being a separate entry point.
 type AlgorithmVariant interface {
-	// Name returns the short canonical name of the variant: "DA", "BDA" or
-	// "MODA".
+	// Name returns the short canonical name of the variant, such as "DA",
+	// "BDA", "MODA", "MHDA", "CDA" or "QGDA".
 	Name() string
 
 	// FullName returns the full descriptive name of the variant.
@@ -97,14 +102,14 @@ type AlgorithmVariant interface {
 	RecommendedFor() []string
 }
 
-// variantOrder is the canonical order of the variants: the paper's order,
-// single-objective continuous first, then discrete, then multi-objective.
+// variantOrder is the canonical order of the original-paper variants followed
+// by the improved variants in publication order.
 //
 // GetAllVariants and ListVariants both walk this slice rather than ranging
 // over variantRegistry, because a map range in Go is deliberately randomized
 // and would make every comparison table, report and recommendation listing
 // come out in a different order on every run.
-var variantOrder = []string{nameDA, nameBDA, nameMODA}
+var variantOrder = []string{nameDA, nameBDA, nameMODA, nameMHDA, nameCDA, nameQGDA}
 
 // variantRegistry resolves a lowercase name or alias to a variant.
 var variantRegistry = map[string]func() AlgorithmVariant{
@@ -113,6 +118,12 @@ var variantRegistry = map[string]func() AlgorithmVariant{
 	"bda":      func() AlgorithmVariant { return &BDAVariant{} },
 	"binary":   func() AlgorithmVariant { return &BDAVariant{} },
 	"moda":     func() AlgorithmVariant { return &MODAVariant{} },
+	"mhda":     func() AlgorithmVariant { return &MHDAVariant{} },
+	"memory":   func() AlgorithmVariant { return &MHDAVariant{} },
+	"cda":      func() AlgorithmVariant { return &CDAVariant{} },
+	"chaotic":  func() AlgorithmVariant { return &CDAVariant{} },
+	"qgda":     func() AlgorithmVariant { return &QGDAVariant{} },
+	"quantum":  func() AlgorithmVariant { return &QGDAVariant{} },
 }
 
 // NewVariant creates an algorithm variant by name, case-insensitively and
@@ -122,6 +133,9 @@ var variantRegistry = map[string]func() AlgorithmVariant{
 //   - "da" or "standard" -- the continuous Dragonfly Algorithm
 //   - "bda" or "binary"  -- the binary Dragonfly Algorithm
 //   - "moda"             -- the multi-objective Dragonfly Algorithm
+//   - "mhda" or "memory" -- the memory-based DA/PSO hybrid
+//   - "cda" or "chaotic" -- the continuous Chaotic Dragonfly Algorithm
+//   - "qgda" or "quantum" -- quantum/Gaussian mutational DA
 //
 // An unknown name is an error rather than a nil variant: a caller that gets a
 // name from a flag or a configuration file should hear about the typo here,
@@ -269,7 +283,7 @@ func (v *DAVariant) EstimatedOverhead() float64 { return 1.0 }
 // RecommendedFor lists the problem classes DA suits.
 func (v *DAVariant) RecommendedFor() []string {
 	return []string{
-		"Continuous single-objective problems",
+		recommendedContinuous,
 		"Unimodal and mildly multimodal landscapes",
 		"Baseline comparison",
 	}
@@ -344,6 +358,166 @@ func (v *BDAVariant) RecommendedFor() []string {
 		"Binary and discrete search spaces",
 		"Feature selection",
 		"Knapsack and subset-selection problems",
+	}
+}
+
+// =============================================================================
+// Improved single-objective variants
+// =============================================================================
+
+// MHDAVariant is the memory-based DA/PSO hybrid of Ranjini and Murugan.
+type MHDAVariant struct{}
+
+func (v *MHDAVariant) Name() string { return nameMHDA }
+
+func (v *MHDAVariant) FullName() string { return "Memory-based Hybrid Dragonfly Algorithm" }
+
+func (v *MHDAVariant) Description() string {
+	return "Continuous DA with per-dragonfly personal memory and a PSO exploitation stage."
+}
+
+func (v *MHDAVariant) GetConfig() *Config { return NewMemoryHybridConfig() }
+
+func (v *MHDAVariant) IsMultiObjective() bool { return false }
+
+func (v *MHDAVariant) Run(
+	ctx context.Context,
+	config *Config,
+	options ...RunOption,
+) (*Result, error) {
+	return OptimizeMemoryHybridContext(ctx, config, options...)
+}
+
+func (v *MHDAVariant) ApplicableTo(characteristics ProblemCharacteristics) float64 {
+	if characteristics.MultiObjective || characteristics.Discrete {
+		return 0.05
+	}
+
+	score := 0.7
+	if characteristics.Modality == Multimodal || characteristics.Modality == HighlyMultimodal {
+		score += 0.1
+	}
+
+	if characteristics.RequiresFastConvergence || characteristics.RequiresStableConvergence {
+		score += 0.1
+	}
+
+	if characteristics.ExpensiveEvaluations {
+		score -= 0.2
+	}
+
+	return min(score, 1.0)
+}
+
+func (v *MHDAVariant) EstimatedOverhead() float64 { return 2.0 }
+
+func (v *MHDAVariant) RecommendedFor() []string {
+	return []string{
+		recommendedContinuous,
+		"Premature-convergence-prone landscapes",
+		"Problems benefiting from PSO exploitation",
+	}
+}
+
+// CDAVariant is Sayed, Tharwat and Hassanien's chaotic DA.
+type CDAVariant struct{}
+
+func (v *CDAVariant) Name() string { return nameCDA }
+
+func (v *CDAVariant) FullName() string { return "Chaotic Dragonfly Algorithm" }
+
+func (v *CDAVariant) Description() string {
+	return "Continuous DA whose movement coefficients come from a selectable chaotic map."
+}
+
+func (v *CDAVariant) GetConfig() *Config { return NewChaoticConfig() }
+
+func (v *CDAVariant) IsMultiObjective() bool { return false }
+
+func (v *CDAVariant) Run(
+	ctx context.Context,
+	config *Config,
+	options ...RunOption,
+) (*Result, error) {
+	return OptimizeChaoticContext(ctx, config, options...)
+}
+
+func (v *CDAVariant) ApplicableTo(characteristics ProblemCharacteristics) float64 {
+	if characteristics.MultiObjective {
+		return 0.05
+	}
+
+	if characteristics.Discrete {
+		return 0.05
+	}
+
+	score := 0.7
+	if characteristics.Landscape == Rugged || characteristics.Modality == HighlyMultimodal {
+		score += 0.1
+	}
+
+	return min(score, 1.0)
+}
+
+func (v *CDAVariant) EstimatedOverhead() float64 { return 1.0 }
+
+func (v *CDAVariant) RecommendedFor() []string {
+	return []string{
+		recommendedContinuous,
+		"Rugged and multimodal landscapes",
+		"Deterministic chaotic coefficient studies",
+	}
+}
+
+// QGDAVariant is Yu et al.'s quantum-behaved Gaussian mutational DA.
+type QGDAVariant struct{}
+
+func (v *QGDAVariant) Name() string { return nameQGDA }
+
+func (v *QGDAVariant) FullName() string {
+	return "Quantum-behaved and Gaussian Mutational Dragonfly Algorithm"
+}
+
+func (v *QGDAVariant) Description() string {
+	return "Continuous DA followed by greedy Gaussian mutation and quantum rotation."
+}
+
+func (v *QGDAVariant) GetConfig() *Config { return NewQuantumConfig() }
+
+func (v *QGDAVariant) IsMultiObjective() bool { return false }
+
+func (v *QGDAVariant) Run(
+	ctx context.Context,
+	config *Config,
+	options ...RunOption,
+) (*Result, error) {
+	return OptimizeQuantumContext(ctx, config, options...)
+}
+
+func (v *QGDAVariant) ApplicableTo(characteristics ProblemCharacteristics) float64 {
+	if characteristics.MultiObjective || characteristics.Discrete {
+		return 0.05
+	}
+
+	score := 0.7
+	if characteristics.Modality == HighlyMultimodal || characteristics.Landscape == Rugged {
+		score += 0.15
+	}
+
+	if characteristics.ExpensiveEvaluations {
+		score -= 0.3
+	}
+
+	return min(score, 1.0)
+}
+
+func (v *QGDAVariant) EstimatedOverhead() float64 { return 3.0 }
+
+func (v *QGDAVariant) RecommendedFor() []string {
+	return []string{
+		"Continuous multimodal optimization",
+		"Diversity-sensitive searches",
+		"Cheap objectives where extra candidate evaluation is affordable",
 	}
 }
 

@@ -10,38 +10,44 @@ Always start from a factory function. `ObjectiveFunc`, `ProblemSize`, `LowerBoun
 
 ## Complete field index
 
-| Field                  | JSON                     | Type                 | Default (`NewDefaultConfig`) |
-| ---------------------- | ------------------------ | -------------------- | ---------------------------- |
-| `ObjectiveFunc`        | not serialized           | `ObjectiveFunction`  | — (required)                 |
-| `Rand`                 | not serialized           | `*rand.Rand`         | `nil`                        |
-| `Seed`                 | `seed`                   | `*int64`             | `nil` → drawn and recorded   |
-| `Convergence`          | `convergence`            | `*ConvergenceConfig` | `nil` (no early stopping)    |
-| `Constraints`          | `constraints`            | `*ConstraintConfig`  | `nil` (unconstrained)        |
-| `BoundaryMethod`       | `boundary_method`        | `BoundaryMethod`     | `"wrap"`                     |
-| `FidelityMode`         | `fidelity_mode`          | `FidelityMode`       | `"paper"`                    |
-| `TransferFunc`         | `transfer_function`      | `TransferFunction`   | `""` → `v3` (BDA only)       |
-| `LowerBound`           | `lower_bound`            | `float64`            | — (required)                 |
-| `UpperBound`           | `upper_bound`            | `float64`            | — (required)                 |
-| `InertiaWeightStart`   | `inertia_weight_start`   | `float64`            | `0.9`                        |
-| `InertiaWeightEnd`     | `inertia_weight_end`     | `float64`            | `0.4`                        |
-| `SeparationWeight`     | `separation_weight`      | `float64`            | `WeightAuto`                 |
-| `AlignmentWeight`      | `alignment_weight`       | `float64`            | `WeightAuto`                 |
-| `CohesionWeight`       | `cohesion_weight`        | `float64`            | `WeightAuto`                 |
-| `FoodWeight`           | `food_weight`            | `float64`            | `WeightAuto`                 |
-| `EnemyWeight`          | `enemy_weight`           | `float64`            | `WeightAuto`                 |
-| `RadiusInitialDivisor` | `radius_initial_divisor` | `float64`            | `4.0`                        |
-| `RadiusGrowth`         | `radius_growth`          | `float64`            | `2.0`                        |
-| `MaxStepRatio`         | `max_step_ratio`         | `float64`            | `0.1`                        |
-| `EnemyCutoffFraction`  | `enemy_cutoff_fraction`  | `float64`            | `0.75`                       |
-| `LevyBeta`             | `levy_beta`              | `float64`            | `1.5`                        |
-| `LevyScale`            | `levy_scale`             | `float64`            | `0.01`                       |
-| `ProblemSize`          | `problem_size`           | `int`                | — (required)                 |
-| `NPop`                 | `npop`                   | `int`                | `40`                         |
-| `MaxIterations`        | `max_iterations`         | `int`                | `1000`                       |
-| `MaxWorkers`           | `max_workers`            | `int`                | `runtime.NumCPU()`           |
-| `UseLevyWalk`          | `use_levy_walk`          | `bool`               | `true`                       |
-| `EnableParallel`       | `enable_parallel`        | `bool`               | `false`                      |
-| `UseBinary`            | `use_binary`             | `bool`               | `false`                      |
+| Field                    | JSON                       | Type                 | Default (`NewDefaultConfig`) |
+| ------------------------ | -------------------------- | -------------------- | ---------------------------- |
+| `ObjectiveFunc`          | not serialized             | `ObjectiveFunction`  | — (required)                 |
+| `Rand`                   | not serialized             | `*rand.Rand`         | `nil`                        |
+| `Seed`                   | `seed`                     | `*int64`             | `nil` → drawn and recorded   |
+| `Convergence`            | `convergence`              | `*ConvergenceConfig` | `nil` (no early stopping)    |
+| `Constraints`            | `constraints`              | `*ConstraintConfig`  | `nil` (unconstrained)        |
+| `BoundaryMethod`         | `boundary_method`          | `BoundaryMethod`     | `"wrap"`                     |
+| `FidelityMode`           | `fidelity_mode`            | `FidelityMode`       | `"paper"`                    |
+| `TransferFunc`           | `transfer_function`        | `TransferFunction`   | `""` → `v3` (BDA only)       |
+| `ChaosMap`               | `chaos_map`                | `ChaosMap`           | `gauss` (CDA only)           |
+| `LowerBound`             | `lower_bound`              | `float64`            | — (required)                 |
+| `UpperBound`             | `upper_bound`              | `float64`            | — (required)                 |
+| `InertiaWeightStart`     | `inertia_weight_start`     | `float64`            | `0.9`                        |
+| `InertiaWeightEnd`       | `inertia_weight_end`       | `float64`            | `0.4`                        |
+| `SeparationWeight`       | `separation_weight`        | `float64`            | `WeightAuto`                 |
+| `AlignmentWeight`        | `alignment_weight`         | `float64`            | `WeightAuto`                 |
+| `CohesionWeight`         | `cohesion_weight`          | `float64`            | `WeightAuto`                 |
+| `FoodWeight`             | `food_weight`              | `float64`            | `WeightAuto`                 |
+| `EnemyWeight`            | `enemy_weight`             | `float64`            | `WeightAuto`                 |
+| `RadiusInitialDivisor`   | `radius_initial_divisor`   | `float64`            | `4.0`                        |
+| `RadiusGrowth`           | `radius_growth`            | `float64`            | `2.0`                        |
+| `MaxStepRatio`           | `max_step_ratio`           | `float64`            | `0.1`                        |
+| `EnemyCutoffFraction`    | `enemy_cutoff_fraction`    | `float64`            | `0.75`                       |
+| `LevyBeta`               | `levy_beta`                | `float64`            | `1.5`                        |
+| `LevyScale`              | `levy_scale`               | `float64`            | `0.01`                       |
+| `PSOCognitiveWeight`     | `pso_cognitive_weight`     | `float64`            | `2.0` (MHDA only)            |
+| `PSOSocialWeight`        | `pso_social_weight`        | `float64`            | `2.0` (MHDA only)            |
+| `ChaosSeed`              | `chaos_seed`               | `float64`            | `0.7` (CDA only)             |
+| `GaussianMutationWeight` | `gaussian_mutation_weight` | `float64`            | `1.0` (QGDA only)            |
+| `QuantumRotationAngle`   | `quantum_rotation_angle`   | `float64`            | `0.005π` (QGDA only)         |
+| `ProblemSize`            | `problem_size`             | `int`                | — (required)                 |
+| `NPop`                   | `npop`                     | `int`                | `40`                         |
+| `MaxIterations`          | `max_iterations`           | `int`                | `1000`                       |
+| `MaxWorkers`             | `max_workers`              | `int`                | `runtime.NumCPU()`           |
+| `UseLevyWalk`            | `use_levy_walk`            | `bool`               | `true`                       |
+| `EnableParallel`         | `enable_parallel`          | `bool`               | `false`                      |
+| `UseBinary`              | `use_binary`               | `bool`               | `false`                      |
 
 ## Problem parameters
 
@@ -421,6 +427,19 @@ carrying a stray `TransferFunc` is not an error; a binary one on the wrong bound
 `Optimize` ignores the field entirely, which is why `DAVariant.Run` refuses a config that has
 it — see [bda.md](../algorithms/bda.md#through-the-variant-layer).
 
+## Improved-variant parameters
+
+MHDA adds a PSO exploitation phase after each ordinary DA phase. Its cognitive and social
+coefficients default to 2. CDA replaces the five automatic S/A/C/F/E weights and inertia with
+one value from a deterministic chaotic sequence per iteration; `ChaosMapNames()` lists its ten
+maps and Gauss with seed 0.7 is the preset. QGDA follows each DA phase with Gaussian mutation
+and quantum rotation batches, controlled by a mutation weight of 1 and a rotation angle of
+`0.005π`.
+
+All three variants support paper fidelity only. Their specialized validators —
+`ValidateMemoryHybridConfig`, `ValidateChaoticConfig` and `ValidateQuantumConfig` — include
+the shared `ValidateConfig` checks and reject incompatible binary/continuous settings.
+
 ## Multi-objective configuration
 
 `MultiObjectiveConfig` wraps a `Config` rather than duplicating it:
@@ -446,6 +465,9 @@ are documented in [moda.md](../algorithms/moda.md#archive-policies).
 | `NewHighDimensionalConfig()` |    100 |            3000 | `RadiusGrowth` 1.0                                    |
 | `NewFastConvergenceConfig()` |     30 |             300 | `RadiusGrowth` 4.0, `MaxStepRatio` 0.2                |
 | `NewBinaryConfig()`          |     40 |            1000 | bounds `[0,1]`, `v3`, `MaxStepRatio` 6.0, `UseBinary` |
+| `NewMemoryHybridConfig()`    |     40 |            1000 | MHDA PSO coefficients 2.0                             |
+| `NewChaoticConfig()`         |     40 |            1000 | Gauss map, chaos seed 0.7                             |
+| `NewQuantumConfig()`         |     40 |            1000 | mutation weight 1.0, rotation angle `0.005π`          |
 
 Each returns a freshly allocated `Config`, so presets are never shared and the result can be
 mutated freely. `NewPresetConfig(preset)` selects one by name — useful for a command-line flag
