@@ -9,6 +9,7 @@ Everything written down about this implementation of the Dragonfly Algorithm liv
 - **Tuning a run?** [Configuration Guide](api/configuration.md)
 - **Which variant?** [Standard DA](algorithms/standard-da.md) · [BDA](algorithms/bda.md) · [MODA](algorithms/moda.md) · [MHDA](algorithms/mhda.md) · [CDA](algorithms/cda.md) · [QGDA](algorithms/qgda.md)
 - **Picking a test function?** [Benchmark Functions](benchmarks.md)
+- **Comparing optimizer families?** [DA vs MA head-to-head](measurements/v0.2.0-head-to-head.md)
 - **Is it fast enough?** [Performance and Profiling](performance.md)
 - **Where does this come from?** [Research References](research.md)
 
@@ -69,6 +70,8 @@ parameters, benefits, performance, when to use, tuning guide, comparison, relate
   optima, characteristics and usage
 - **[Performance and Profiling](performance.md)** — measured timings and allocation counts,
   dimension and population scaling, when parallel evaluation pays for itself, profiling recipes
+- **[DA vs MA Head-to-head](measurements/v0.2.0-head-to-head.md)** — a reproducible
+  equal-evaluation-budget study, with CMA-ES as a calibration baseline and raw CSV evidence
 - **[Research References](research.md)** — the primary and supporting papers, BibTeX entries,
   and an honest inventory of which constants are verified against the reference code
 - **[Releasing](releasing.md)** — version policy, release checklist, validation workflow

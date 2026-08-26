@@ -74,6 +74,18 @@ the rounded scratch it computes. One numerical defect is deliberately repaired: 
 dimension 5 evaluates its one-dimensional elliptic partition normally instead of dividing by
 zero and returning `NaN`.
 
+## Cross-library head-to-head
+
+The opt-in [head-to-head harness](../examples/head-to-head/) compares standard DA and standard
+MA on the five classic functions below, with CMA-ES included as a calibration baseline. It uses
+30 paired seeds, conventional physical bounds and exactly 20,000 real objective calls per
+optimizer and run. Quality is ranked by final cost; elapsed time is recorded only for
+diagnostics because the algorithms perform different internal work per call.
+
+The generated [results table](measurements/v0.2.0-head-to-head.md) states the full protocol and
+links its raw 450-run CSV. Run `just head-to-head` to reproduce both files when the Mayfly and
+go-cma-es repositories are checked out beside Dragonfly.
+
 ## Quick reference table
 
 `Characteristics` are the hand-classified values `BenchmarkCharacteristics(name)` returns; the

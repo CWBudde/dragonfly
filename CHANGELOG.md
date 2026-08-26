@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evaluators with validated `fs.FS` loaders for the organizers' transformation data, official
   biases and budgets, normalized Dragonfly configurations, and regression coverage for base,
   hybrid and composition functions.
+- An opt-in cross-library head-to-head harness and committed raw/results reports for standard
+  DA versus standard MA under equal objective-evaluation budgets, with full-covariance CMA-ES
+  as a calibration baseline.
 
 ### Changed
 

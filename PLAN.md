@@ -726,14 +726,21 @@ not a mistranscription of `π/4`), and `ExpandedSchafferF6`'s wrap-around pair
       `WithArchiveObserver` and `ParetoArchive.GridBounds()` added, and `NeighborhoodRadius`
       and `WithinRadius` exported so a caller reconstructing a neighbourhood asks the
       library rather than reimplementing the per-dimension test.
-- [ ] `CONTRIBUTING.md`, issue and PR templates
 - [x] Hybrid and improved DA variants — implemented 2026-08-26 as the three canonical,
       reproducible papers behind the formerly ambiguous “MDA/HDA” wording: MHDA (DA plus
       personal/global memory and a PSO phase), continuous CDA (ten chaotic maps; Gauss/0.7
       preset), and QGDA (Gaussian mutation plus quantum rotation). Each has a dedicated API,
       preset, registry/selector integration, deterministic parallel evaluation, exact
       evaluation accounting, regression coverage, example and algorithm guide.
-- [ ] A head-to-head `dragonfly` vs `mayfly` comparison harness and results table
+- [x] A head-to-head `dragonfly` vs `mayfly` comparison harness and results table — completed
+      2026-08-27 as the opt-in `examples/head-to-head` module and
+      `docs/measurements/v0.2.0-head-to-head.{csv,md}`. The study uses 30 paired seeds on five
+      classic 30-D functions, their conventional physical bounds and exactly 20,000 real
+      objective calls per optimizer/run. Standard MA's median cost beat standard DA on all five
+      functions (Holm-adjusted Wilcoxon p < 0.0001 throughout). Full-covariance CMA-ES is included
+      as an external calibration baseline, following the sibling project's budget-first
+      methodology: it won four median columns, while MA won Rastrigin. Timing remains diagnostic
+      rather than ranked because objective-call parity does not imply equal internal work.
 
 ---
 

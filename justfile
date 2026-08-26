@@ -49,6 +49,26 @@ study-quality output="docs/measurements/v0.2.0-quality.csv":
 study-bda-quality output="docs/measurements/v0.2.0-bda-quality.csv":
     DRAGONFLY_RUN_BDA_STUDY=1 DRAGONFLY_BDA_STUDY_OUTPUT="{{output}}" go test -v -count=1 -run '^TestBDAQualityStudy$' -timeout 30m .
 
+# Run the opt-in cross-library quality study. The nested module expects Mayfly
+# and go-cma-es beside this repository; see examples/head-to-head/README.md.
+head-to-head runs="30" dimensions="30" budget="20000" seed="20260827":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dragonfly_revision="$(git rev-parse HEAD)"
+    mayfly_revision="$(git -C ../Mayfly rev-parse HEAD)"
+    cma_revision="$(git -C ../go-cma-es rev-parse HEAD)"
+    cd examples/head-to-head
+    go run . \
+        -runs "{{runs}}" -dimensions "{{dimensions}}" -budget "{{budget}}" -seed "{{seed}}" \
+        -out ../../docs/measurements/v0.2.0-head-to-head.csv \
+        -dragonfly-revision "$dragonfly_revision" \
+        -mayfly-revision "$mayfly_revision" \
+        -cma-revision "$cma_revision"
+
+# Test the opt-in cross-library harness without running the full study.
+test-head-to-head:
+    cd examples/head-to-head && go test ./...
+
 # Enforce the release coverage floor rather than merely generating a report.
 check-coverage min="80":
     #!/usr/bin/env bash

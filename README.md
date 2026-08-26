@@ -265,6 +265,11 @@ The report carries per-variant mean, median, standard deviation, best, worst, su
 rank; pairwise Wilcoxon signed-rank tests; and one Friedman test across every variant at once.
 See [docs/api/comparison-framework.md](docs/api/comparison-framework.md).
 
+For a cross-library evaluation, the opt-in [head-to-head harness](examples/head-to-head/)
+runs standard DA and MA under identical objective-call budgets and uses CMA-ES as an external
+calibration baseline. Its committed [results table](docs/measurements/v0.2.0-head-to-head.md)
+is backed by one raw row per run.
+
 ## Benchmark Functions
 
 **Single-objective (16):** Sphere, Rastrigin, Rosenbrock, Ackley, Griewank, Schwefel, Levy,
